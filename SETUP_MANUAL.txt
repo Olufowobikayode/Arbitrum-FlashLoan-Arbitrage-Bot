@@ -1,0 +1,14 @@
+# 🚀 FLASHLOAN ARBITRAGE BOT - COMPLETE SETUP MANUAL
+
+## 📋 PREREQUISITES
+1. Node.js (v16 or higher)
+2. MetaMask wallet with Arbitrum network
+3. Some ETH on Arbitrum for gas fees
+4. Arbiscan API key (optional, for contract verification)
+
+## 🔧 ENVIRONMENT VARIABLES SETUP
+
+### Step 1: Create Environment File
+Copy the `.env.example` file to `.env` in your project root:
+\`\`\`bash
+cp .env.example .env

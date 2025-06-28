@@ -1,0 +1,188 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom"
+import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
+import { Web3Provider } from "@/src/contexts/Web3Context"
+import { BotProvider } from "@/src/contexts/BotContext"
+
+// Components
+import Sidebar from "@/src/components/Sidebar"
+import Header from "@/src/components/Header"
+import Dashboard from "@/src/components/Dashboard"
+import TradingPanel from "@/src/components/TradingPanel"
+import MonitoringDashboard from "@/src/components/MonitoringDashboard"
+import PortfolioDashboard from "@/src/components/PortfolioDashboard"
+import SetupWizard from "@/src/components/SetupWizard"
+import ConfigPanel from "@/src/components/ConfigPanel"
+import NotificationSettingsPanel from "@/src/components/NotificationSettingsPanel"
+import StrategyBuilder from "@/src/components/StrategyBuilder"
+
+// Services
+import { RealTimePriceFeedService } from "@/src/services/RealTimePriceFeedService"
+import { WebSocketService } from "@/src/services/WebSocketService"
+import { BotService } from "@/src/services/BotService"
+
+// Styles
+import "@/src/App.css"
+
+function App() {
+  const [isSetupComplete, setIsSetupComplete] = useState(false)
+  const [services, setServices] = useState<{
+    priceFeed: RealTimePriceFeedService | null
+    webSocket: WebSocketService | null
+    bot: BotService | null
+  }>({
+    priceFeed: null,
+    webSocket: null,
+    bot: null,
+  })
+
+  useEffect(() => {
+    // Check if setup is complete
+    const setupData = localStorage.getItem("setupComplete")
+    setIsSetupComplete(!!setupData)
+
+    // Initialize services
+    initializeServices()
+
+    return () => {
+      // Cleanup services on unmount
+      cleanupServices()
+    }
+  }, [])
+
+  const initializeServices = async () => {
+    try {
+      console.log("🚀 Initializing real-time services...")
+
+      // Initialize price feed service
+      const priceFeedService = new RealTimePriceFeedService()
+
+      // Initialize WebSocket service
+      const webSocketService = new WebSocketService()
+
+      // Initialize bot service
+      const botService = new BotService()
+
+      setServices({
+        priceFeed: priceFeedService,
+        webSocket: webSocketService,
+        bot: botService,
+      })
+
+      // Start services if setup is complete
+      if (isSetupComplete) {
+        await startServices(priceFeedService, webSocketService)
+      }
+
+      console.log("✅ Services initialized successfully")
+    } catch (error) {
+      console.error("❌ Failed to initialize services:", error)
+    }
+  }
+
+  const startServices = async (priceFeedService: RealTimePriceFeedService, webSocketService: WebSocketService) => {
+    try {
+      // Start price feeds for common tokens
+      await priceFeedService.startPriceFeeds(["WETH", "USDC", "USDT", "DAI", "WBTC", "ARB", "GMX"])
+
+      // Start WebSocket connections
+      await webSocketService.startConnections()
+
+      // Setup cross-service communication
+      setupServiceIntegration(priceFeedService, webSocketService)
+
+      console.log("✅ All services started successfully")
+    } catch (error) {
+      console.error("❌ Failed to start services:", error)
+    }
+  }
+
+  const setupServiceIntegration = (priceFeedService: RealTimePriceFeedService, webSocketService: WebSocketService) => {
+    // Subscribe to WebSocket price updates and forward to price feed service
+    webSocketService.subscribe("price_update", (message) => {
+      // Handle real-time price updates from exchanges
+      console.log("📈 Price update:", message.data)
+    })
+
+    webSocketService.subscribe("dex_update", (message) => {
+      // Handle DEX-specific updates
+      console.log("🔄 DEX update:", message.data)
+    })
+
+    webSocketService.subscribe("new_block", (message) => {
+      // Handle new block notifications
+      console.log("⛏️ New block:", message.data.blockNumber)
+    })
+
+    webSocketService.subscribe("pending_transaction", (message) => {
+      // Handle pending transaction notifications for MEV detection
+      console.log("⏳ Pending TX:", message.data.txHash)
+    })
+  }
+
+  const cleanupServices = () => {
+    if (services.priceFeed) {
+      services.priceFeed.cleanup()
+    }
+    if (services.webSocket) {
+      services.webSocket.cleanup()
+    }
+  }
+
+  const handleSetupComplete = async () => {
+    setIsSetupComplete(true)
+    localStorage.setItem("setupComplete", "true")
+
+    // Start services after setup
+    if (services.priceFeed && services.webSocket) {
+      await startServices(services.priceFeed, services.webSocket)
+    }
+  }
+
+  if (!isSetupComplete) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+        <div className="min-h-screen bg-background">
+          <SetupWizard onComplete={handleSetupComplete} />
+          <Toaster />
+        </div>
+      </ThemeProvider>
+    )
+  }
+
+  return (
+    <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+      <Web3Provider>
+        <BotProvider services={services}>
+          <Router>
+            <div className="flex h-screen bg-background">
+              <Sidebar />
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <Header />
+                <main className="flex-1 overflow-auto p-6">
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/trading" element={<TradingPanel />} />
+                    <Route path="/monitoring" element={<MonitoringDashboard />} />
+                    <Route path="/portfolio" element={<PortfolioDashboard />} />
+                    <Route path="/strategy-builder" element={<StrategyBuilder />} />
+                    <Route path="/config" element={<ConfigPanel />} />
+                    <Route path="/notifications" element={<NotificationSettingsPanel />} />
+                    <Route path="/setup" element={<SetupWizard onComplete={handleSetupComplete} />} />
+                  </Routes>
+                </main>
+              </div>
+            </div>
+            <Toaster />
+          </Router>
+        </BotProvider>
+      </Web3Provider>
+    </ThemeProvider>
+  )
+}
+
+export default App
