@@ -2,6 +2,7 @@ require("@nomicfoundation/hardhat-toolbox")
 require("@nomiclabs/hardhat-etherscan")
 require("dotenv").config()
 
+/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
     version: "0.8.19",
@@ -15,33 +16,34 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: process.env.MAINNET_RPC_URL || "https://eth-mainnet.alchemyapi.io/v2/your-api-key",
+        url: process.env.ARBITRUM_RPC || "https://arbitrum-one.publicnode.com",
+        blockNumber: 150000000, // Optional: pin to specific block
       },
     },
-    mainnet: {
-      url: process.env.MAINNET_RPC_URL || "",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-    },
     arbitrum: {
-      url: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+      url: process.env.ARBITRUM_RPC || "https://arbitrum-one.publicnode.com",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 42161,
+      gasPrice: "auto",
     },
-    polygon: {
-      url: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
+    arbitrumGoerli: {
+      url: "https://goerli-rollup.arbitrum.io/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 137,
+      chainId: 421613,
     },
   },
   etherscan: {
     apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY || "",
       arbitrumOne: process.env.ARBISCAN_API_KEY || "",
-      polygon: process.env.POLYGONSCAN_API_KEY || "",
+      arbitrumGoerli: process.env.ARBISCAN_API_KEY || "",
     },
   },
   gasReporter: {
-    enabled: process.env.REPORT_GAS !== undefined,
+    enabled: process.env.REPORT_GAS === "true",
     currency: "USD",
+    gasPrice: 21,
+  },
+  mocha: {
+    timeout: 60000,
   },
 }

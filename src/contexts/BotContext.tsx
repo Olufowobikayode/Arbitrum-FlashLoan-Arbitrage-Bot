@@ -1,9 +1,8 @@
 "use client"
 
 import type React from "react"
-
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
-import { useToast } from "@/hooks/use-toast"
+import { useWeb3 } from "./Web3Context"
 
 export interface BotState {
   running: boolean
@@ -76,7 +75,7 @@ interface BotContextType {
 const BotContext = createContext<BotContextType | undefined>(undefined)
 
 export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { toast } = useToast()
+  const { account, isConnected } = useWeb3()
 
   const [botState, setBotState] = useState<BotState>({
     running: false,
@@ -222,6 +221,10 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [botState.minProfitThreshold])
 
   const startBot = useCallback(async () => {
+    if (!isConnected || !account) {
+      throw new Error("Wallet not connected")
+    }
+
     try {
       setBotState((prev) => ({ ...prev, running: true, status: "scanning" }))
       setIsScanning(true)
@@ -229,34 +232,20 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Start scanning
       await scanForOpportunities()
 
-      toast({
-        title: "Bot Started",
-        description: "Arbitrage bot is now scanning for opportunities.",
-      })
-
       console.log("🤖 Bot started successfully")
     } catch (error) {
       console.error("Failed to start bot:", error)
       setBotState((prev) => ({ ...prev, running: false, status: "error" }))
       setIsScanning(false)
-      toast({
-        title: "Error",
-        description: "Failed to start the bot. Please try again.",
-        variant: "destructive",
-      })
       throw error
     }
-  }, [toast])
+  }, [isConnected, account])
 
   const stopBot = useCallback(() => {
     setBotState((prev) => ({ ...prev, running: false, status: "stopped" }))
     setIsScanning(false)
-    toast({
-      title: "Bot Stopped",
-      description: "Arbitrage bot has been stopped.",
-    })
     console.log("🤖 Bot stopped")
-  }, [toast])
+  }, [])
 
   const emergencyStop = useCallback(() => {
     setBotState((prev) => ({
@@ -267,13 +256,8 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }))
     setIsScanning(false)
     setOpportunities([])
-    toast({
-      title: "Emergency Stop",
-      description: "Bot has been emergency stopped and all trades halted.",
-      variant: "destructive",
-    })
     console.log("🚨 Emergency stop activated")
-  }, [toast])
+  }, [])
 
   const toggleAutoTrade = useCallback(() => {
     setBotState((prev) => ({ ...prev, autoTrade: !prev.autoTrade }))
@@ -285,6 +269,10 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const executeArbitrage = useCallback(
     async (opportunity: ArbitrageOpportunity) => {
+      if (!isConnected || !account) {
+        throw new Error("Wallet not connected")
+      }
+
       try {
         setBotState((prev) => ({ ...prev, status: "executing" }))
 
@@ -331,11 +319,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...prev.slice(0, 9),
           ])
 
-          toast({
-            title: "Trade Executed",
-            description: `Profit: $${actualProfit.toFixed(2)}`,
-          })
-
           console.log(`✅ Arbitrage executed successfully: $${actualProfit.toFixed(2)} profit`)
         } else {
           setBotState((prev) => ({
@@ -352,12 +335,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             lastExecution: Date.now(),
           }))
 
-          toast({
-            title: "Trade Failed",
-            description: "The arbitrage trade was not successful.",
-            variant: "destructive",
-          })
-
           throw new Error("Trade execution failed")
         }
 
@@ -369,7 +346,7 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw error
       }
     },
-    [toast],
+    [isConnected, account],
   )
 
   const scanForOpportunities = useCallback(async () => {
