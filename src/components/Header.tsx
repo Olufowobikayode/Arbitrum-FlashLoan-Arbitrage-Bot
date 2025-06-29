@@ -1,75 +1,131 @@
 "use client"
+
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Menu, Wallet, Settings, Bell, LogOut } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Wallet, Settings, LogOut, ChevronDown, Activity, DollarSign, TrendingUp, Zap } from "lucide-react"
 import { useWeb3 } from "@/src/contexts/Web3Context"
 import { useBot } from "@/src/contexts/BotContext"
 
-interface HeaderProps {
-  onMenuToggle: () => void
-  currentView: string
-}
+export default function Header() {
+  const { account, isConnected, balance, connect, disconnect, chainId } = useWeb3()
+  const { botState, startBot, stopBot } = useBot()
+  const [isToggling, setIsToggling] = useState(false)
 
-export default function Header({ onMenuToggle, currentView }: HeaderProps) {
-  const { isConnected, account, balance, connectWallet, disconnectWallet } = useWeb3()
-  const { botState } = useBot()
+  const handleBotToggle = async () => {
+    setIsToggling(true)
+    try {
+      if (botState.running) {
+        stopBot()
+      } else {
+        await startBot()
+      }
+    } catch (error) {
+      console.error("Failed to toggle bot:", error)
+    } finally {
+      setIsToggling(false)
+    }
+  }
 
-  const formatAccount = (account: string) => {
-    return `${account.slice(0, 6)}...${account.slice(-4)}`
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`
+  }
+
+  const getNetworkName = (chainId: number | null) => {
+    switch (chainId) {
+      case 1:
+        return "Ethereum"
+      case 42161:
+        return "Arbitrum"
+      case 137:
+        return "Polygon"
+      default:
+        return "Unknown"
+    }
   }
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-background border-b">
-      <div className="flex items-center justify-between px-6 py-3">
+    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="flex h-16 items-center justify-between px-6">
+        {/* Left side - Bot status and stats */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={onMenuToggle}>
-            <Menu className="w-5 h-5" />
-          </Button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">AB</span>
-            </div>
-            <span className="font-semibold">Arbitrage Bot</span>
+            <div className={`w-2 h-2 rounded-full ${botState.running ? "bg-green-500" : "bg-gray-400"}`} />
+            <span className="text-sm font-medium">Bot {botState.running ? "Active" : "Inactive"}</span>
           </div>
+
+          {botState.running && (
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-1">
+                <DollarSign className="w-4 h-4 text-green-600" />
+                <span className="font-medium">${botState.totalProfit.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <TrendingUp className="w-4 h-4 text-blue-600" />
+                <span className="font-medium">{botState.successRate.toFixed(1)}%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Activity className="w-4 h-4 text-purple-600" />
+                <span className="font-medium">{botState.totalTrades}</span>
+              </div>
+            </div>
+          )}
         </div>
 
+        {/* Right side - Controls and wallet */}
         <div className="flex items-center gap-4">
-          {/* Bot Status */}
-          <Badge variant={botState.running ? "default" : "secondary"} className="hidden md:flex">
-            <div
-              className={`w-2 h-2 rounded-full mr-2 ${botState.running ? "bg-green-500 animate-pulse" : "bg-gray-400"}`}
-            />
-            {botState.running ? "Running" : "Stopped"}
-          </Badge>
+          {/* Bot Control */}
+          {isConnected && (
+            <Button
+              onClick={handleBotToggle}
+              disabled={isToggling}
+              variant={botState.running ? "destructive" : "default"}
+              size="sm"
+            >
+              {isToggling ? <Settings className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+              {botState.running ? "Stop Bot" : "Start Bot"}
+            </Button>
+          )}
 
           {/* Wallet Connection */}
           {isConnected ? (
-            <div className="flex items-center gap-2">
-              <div className="hidden md:block text-sm">
-                <div className="font-medium">{formatAccount(account!)}</div>
-                <div className="text-muted-foreground">{balance} ETH</div>
-              </div>
-              <Button variant="outline" size="sm" onClick={disconnectWallet}>
-                <LogOut className="w-4 h-4 mr-2" />
-                Disconnect
-              </Button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2 bg-transparent">
+                  <Wallet className="w-4 h-4" />
+                  <div className="flex flex-col items-start">
+                    <span className="text-xs">{formatAddress(account!)}</span>
+                    <span className="text-xs text-muted-foreground">{balance} ETH</span>
+                  </div>
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="p-2">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium">{formatAddress(account!)}</p>
+                    <p className="text-xs text-muted-foreground">{getNetworkName(chainId)} Network</p>
+                    <p className="text-xs text-muted-foreground">Balance: {balance} ETH</p>
+                  </div>
+                </div>
+                <DropdownMenuItem onClick={disconnect}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Disconnect
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
-            <Button onClick={connectWallet}>
-              <Wallet className="w-4 h-4 mr-2" />
+            <Button onClick={connect} className="gap-2">
+              <Wallet className="w-4 h-4" />
               Connect Wallet
             </Button>
           )}
 
-          {/* Notifications */}
-          <Button variant="ghost" size="sm">
-            <Bell className="w-5 h-5" />
-          </Button>
-
-          {/* Settings */}
-          <Button variant="ghost" size="sm">
-            <Settings className="w-5 h-5" />
-          </Button>
+          {/* Network Badge */}
+          {isConnected && chainId && (
+            <Badge variant={chainId === 42161 ? "default" : "destructive"}>{getNetworkName(chainId)}</Badge>
+          )}
         </div>
       </div>
     </header>

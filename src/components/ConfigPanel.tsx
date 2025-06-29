@@ -1,41 +1,135 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Save, RefreshCw, AlertTriangle } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Settings, Save, RefreshCw, AlertTriangle, CheckCircle, Zap, Shield, Target } from "lucide-react"
 import { useBot } from "@/src/contexts/BotContext"
 
-export default function ConfigPanel() {
-  const { botState, updateBotConfig } = useBot()
-  const [config, setConfig] = useState({
-    minProfitThreshold: botState.minProfitThreshold,
-    maxSlippage: botState.maxSlippage,
-    riskLevel: botState.riskLevel,
-    autoExecuteEnabled: botState.autoExecuteEnabled,
+interface ConfigSettings {
+  trading: {
+    minProfitThreshold: number
+    maxSlippage: number
+    gasLimit: number
+    maxTradeSize: number
+    riskLevel: "low" | "medium" | "high"
+    autoExecute: boolean
+  }
+  exchanges: {
+    uniswap: boolean
+    sushiswap: boolean
+    balancer: boolean
+    curve: boolean
+    oneinch: boolean
+  }
+  tokens: {
+    WETH: boolean
+    USDC: boolean
+    USDT: boolean
+    WBTC: boolean
+    DAI: boolean
+    ARB: boolean
+  }
+  advanced: {
+    maxConcurrentTrades: number
+    cooldownPeriod: number
+    enableMEVProtection: boolean
+    enableFlashbotsRelay: boolean
+    priorityFee: number
+  }
+}
+
+const defaultSettings: ConfigSettings = {
+  trading: {
+    minProfitThreshold: 10,
+    maxSlippage: 0.5,
     gasLimit: 500000,
     maxTradeSize: 1000,
-    enabledExchanges: ["uniswap", "sushiswap", "balancer"],
-    enabledTokens: ["WETH", "USDC", "USDT", "WBTC"],
-  })
+    riskLevel: "medium",
+    autoExecute: false,
+  },
+  exchanges: {
+    uniswap: true,
+    sushiswap: true,
+    balancer: false,
+    curve: false,
+    oneinch: false,
+  },
+  tokens: {
+    WETH: true,
+    USDC: true,
+    USDT: true,
+    WBTC: false,
+    DAI: false,
+    ARB: false,
+  },
+  advanced: {
+    maxConcurrentTrades: 3,
+    cooldownPeriod: 5,
+    enableMEVProtection: true,
+    enableFlashbotsRelay: false,
+    priorityFee: 2,
+  },
+}
+
+export default function ConfigPanel() {
+  const { updateBotConfig, botState } = useBot()
+  const [settings, setSettings] = useState<ConfigSettings>(defaultSettings)
   const [isSaving, setIsSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState<Date | null>(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [isClient, setIsClient] = useState(false)
+
+  // Set client flag after mount
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  useEffect(() => {
+    // Load settings from localStorage only on client
+    if (isClient) {
+      try {
+        const savedSettings = localStorage.getItem("botConfig")
+        if (savedSettings) {
+          const parsed = JSON.parse(savedSettings)
+          setSettings({ ...defaultSettings, ...parsed })
+        }
+      } catch (error) {
+        console.error("Failed to load config:", error)
+        setSettings(defaultSettings)
+      }
+    }
+  }, [isClient])
 
   const handleSave = async () => {
     setIsSaving(true)
     try {
+      // Save to localStorage
+      if (isClient) {
+        localStorage.setItem("botConfig", JSON.stringify(settings))
+      }
+
+      // Update bot config
       updateBotConfig({
-        minProfitThreshold: config.minProfitThreshold,
-        maxSlippage: config.maxSlippage,
-        riskLevel: config.riskLevel,
-        autoExecuteEnabled: config.autoExecuteEnabled,
+        minProfitThreshold: settings.trading.minProfitThreshold,
+        maxSlippage: settings.trading.maxSlippage,
+        riskLevel: settings.trading.riskLevel,
+        autoExecuteEnabled: settings.trading.autoExecute,
       })
+
+      // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      setLastSaved(new Date())
+      setHasChanges(false)
     } catch (error) {
       console.error("Failed to save config:", error)
     } finally {
@@ -44,16 +138,46 @@ export default function ConfigPanel() {
   }
 
   const handleReset = () => {
-    setConfig({
-      minProfitThreshold: 10,
-      maxSlippage: 0.5,
-      riskLevel: "medium",
-      autoExecuteEnabled: false,
-      gasLimit: 500000,
-      maxTradeSize: 1000,
-      enabledExchanges: ["uniswap", "sushiswap"],
-      enabledTokens: ["WETH", "USDC"],
+    setSettings(defaultSettings)
+    setHasChanges(true)
+  }
+
+  const updateSetting = (path: string, value: any) => {
+    setSettings((prev) => {
+      const keys = path.split(".")
+      const newSettings = { ...prev }
+      let current: any = newSettings
+
+      for (let i = 0; i < keys.length - 1; i++) {
+        current[keys[i]] = { ...current[keys[i]] }
+        current = current[keys[i]]
+      }
+
+      current[keys[keys.length - 1]] = value
+      return newSettings
     })
+    setHasChanges(true)
+  }
+
+  const getRiskColor = (risk: string) => {
+    switch (risk) {
+      case "low":
+        return "text-green-600"
+      case "medium":
+        return "text-yellow-600"
+      case "high":
+        return "text-red-600"
+      default:
+        return "text-gray-600"
+    }
+  }
+
+  const getEnabledExchangesCount = () => {
+    return Object.values(settings.exchanges).filter(Boolean).length
+  }
+
+  const getEnabledTokensCount = () => {
+    return Object.values(settings.tokens).filter(Boolean).length
   }
 
   return (
@@ -62,14 +186,18 @@ export default function ConfigPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Configuration</h1>
-          <p className="text-muted-foreground">Manage your bot settings and trading parameters</p>
+          <p className="text-muted-foreground">Configure your arbitrage bot settings and preferences</p>
         </div>
         <div className="flex items-center gap-2">
+          {hasChanges && <Badge variant="secondary">Unsaved Changes</Badge>}
+          {lastSaved && (
+            <span className="text-sm text-muted-foreground">Last saved: {lastSaved.toLocaleTimeString()}</span>
+          )}
           <Button variant="outline" onClick={handleReset}>
             <RefreshCw className="w-4 h-4 mr-2" />
-            Reset to Defaults
+            Reset
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button onClick={handleSave} disabled={isSaving || !hasChanges}>
             {isSaving ? (
               <>
                 <Settings className="w-4 h-4 mr-2 animate-spin" />
@@ -88,42 +216,45 @@ export default function ConfigPanel() {
       <Tabs defaultValue="trading" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="trading">Trading</TabsTrigger>
-          <TabsTrigger value="risk">Risk Management</TabsTrigger>
           <TabsTrigger value="exchanges">Exchanges</TabsTrigger>
+          <TabsTrigger value="tokens">Tokens</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
 
+        {/* Trading Settings */}
         <TabsContent value="trading" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Trading Parameters</CardTitle>
-              <CardDescription>Configure basic trading settings and thresholds</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="minProfit">Minimum Profit Threshold ($)</Label>
-                  <Input
-                    id="minProfit"
-                    type="number"
-                    value={config.minProfitThreshold}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, minProfitThreshold: Number(e.target.value) }))}
-                    min="1"
-                    max="1000"
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="w-5 h-5" />
+                  Basic Trading Parameters
+                </CardTitle>
+                <CardDescription>Configure core trading settings and risk management</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <Label>Minimum Profit Threshold: ${settings.trading.minProfitThreshold}</Label>
+                  <Slider
+                    value={[settings.trading.minProfitThreshold]}
+                    onValueChange={(value) => updateSetting("trading.minProfitThreshold", value[0])}
+                    max={100}
+                    min={1}
+                    step={1}
+                    className="w-full"
                   />
-                  <p className="text-xs text-muted-foreground">Only execute trades with profit above this amount</p>
+                  <p className="text-xs text-muted-foreground">Minimum profit required to execute a trade</p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="maxSlippage">Maximum Slippage (%)</Label>
-                  <Input
-                    id="maxSlippage"
-                    type="number"
-                    value={config.maxSlippage}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, maxSlippage: Number(e.target.value) }))}
-                    min="0.1"
-                    max="5"
-                    step="0.1"
+                <div className="space-y-3">
+                  <Label>Maximum Slippage: {settings.trading.maxSlippage}%</Label>
+                  <Slider
+                    value={[settings.trading.maxSlippage]}
+                    onValueChange={(value) => updateSetting("trading.maxSlippage", value[0])}
+                    max={5}
+                    min={0.1}
+                    step={0.1}
+                    className="w-full"
                   />
                   <p className="text-xs text-muted-foreground">Maximum acceptable slippage for trades</p>
                 </div>
@@ -133,8 +264,8 @@ export default function ConfigPanel() {
                   <Input
                     id="maxTradeSize"
                     type="number"
-                    value={config.maxTradeSize}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, maxTradeSize: Number(e.target.value) }))}
+                    value={settings.trading.maxTradeSize}
+                    onChange={(e) => updateSetting("trading.maxTradeSize", Number(e.target.value))}
                     min="100"
                     max="10000"
                   />
@@ -146,154 +277,258 @@ export default function ConfigPanel() {
                   <Input
                     id="gasLimit"
                     type="number"
-                    value={config.gasLimit}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, gasLimit: Number(e.target.value) }))}
+                    value={settings.trading.gasLimit}
+                    onChange={(e) => updateSetting("trading.gasLimit", Number(e.target.value))}
                     min="100000"
                     max="1000000"
                   />
                   <p className="text-xs text-muted-foreground">Gas limit for arbitrage transactions</p>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="autoExecute"
-                  checked={config.autoExecuteEnabled}
-                  onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, autoExecuteEnabled: checked }))}
-                />
-                <Label htmlFor="autoExecute">Enable automatic trade execution</Label>
-              </div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Risk Management
+                </CardTitle>
+                <CardDescription>Configure risk level and safety settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="riskLevel">Risk Level</Label>
+                  <Select
+                    value={settings.trading.riskLevel}
+                    onValueChange={(value: "low" | "medium" | "high") => updateSetting("trading.riskLevel", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low Risk</SelectItem>
+                      <SelectItem value="medium">Medium Risk</SelectItem>
+                      <SelectItem value="high">High Risk</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className={`text-xs ${getRiskColor(settings.trading.riskLevel)}`}>
+                    {settings.trading.riskLevel === "low" && "Conservative trading with higher profit thresholds"}
+                    {settings.trading.riskLevel === "medium" && "Balanced approach with moderate risk"}
+                    {settings.trading.riskLevel === "high" && "Aggressive trading with lower thresholds"}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Enable Auto-Execute</Label>
+                    <div className="text-sm text-muted-foreground">Automatically execute profitable trades</div>
+                  </div>
+                  <Switch
+                    checked={settings.trading.autoExecute}
+                    onCheckedChange={(checked) => updateSetting("trading.autoExecute", checked)}
+                  />
+                </div>
+
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Higher risk levels may yield higher profits but also increase potential losses. Always ensure you
+                    understand the risks involved.
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
-        <TabsContent value="risk" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Risk Management</CardTitle>
-              <CardDescription>Configure risk levels and safety parameters</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="riskLevel">Risk Level</Label>
-                <Select
-                  value={config.riskLevel}
-                  onValueChange={(value: "low" | "medium" | "high") =>
-                    setConfig((prev) => ({ ...prev, riskLevel: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low Risk - Conservative trading</SelectItem>
-                    <SelectItem value="medium">Medium Risk - Balanced approach</SelectItem>
-                    <SelectItem value="high">High Risk - Aggressive trading</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  Higher risk levels may yield higher profits but also increase potential losses. Always trade with
-                  funds you can afford to lose.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
+        {/* Exchange Settings */}
         <TabsContent value="exchanges" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Exchange Configuration</CardTitle>
-              <CardDescription>Select which exchanges and tokens to monitor</CardDescription>
+              <CardTitle>Supported Exchanges</CardTitle>
+              <CardDescription>
+                Select which decentralized exchanges to monitor for arbitrage opportunities
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <Label>Enabled Exchanges</Label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {["Uniswap V3", "SushiSwap", "Balancer", "Curve", "1inch", "Kyber"].map((exchange) => (
-                    <div key={exchange} className="flex items-center space-x-2">
-                      <Switch
-                        id={exchange}
-                        checked={config.enabledExchanges.includes(exchange.toLowerCase().replace(" ", ""))}
-                        onCheckedChange={(checked) => {
-                          const exchangeId = exchange.toLowerCase().replace(" ", "")
-                          if (checked) {
-                            setConfig((prev) => ({
-                              ...prev,
-                              enabledExchanges: [...prev.enabledExchanges, exchangeId],
-                            }))
-                          } else {
-                            setConfig((prev) => ({
-                              ...prev,
-                              enabledExchanges: prev.enabledExchanges.filter((e) => e !== exchangeId),
-                            }))
-                          }
-                        }}
-                      />
-                      <Label htmlFor={exchange} className="text-sm">
-                        {exchange}
-                      </Label>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(settings.exchanges).map(([exchange, enabled]) => (
+                  <div key={exchange} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary">{exchange.slice(0, 2).toUpperCase()}</span>
+                      </div>
+                      <div>
+                        <div className="font-medium capitalize">{exchange}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {exchange === "uniswap" && "V3 Protocol"}
+                          {exchange === "sushiswap" && "AMM Protocol"}
+                          {exchange === "balancer" && "Weighted Pools"}
+                          {exchange === "curve" && "Stable Swaps"}
+                          {exchange === "oneinch" && "DEX Aggregator"}
+                        </div>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    <Switch
+                      checked={enabled}
+                      onCheckedChange={(checked) => updateSetting(`exchanges.${exchange}`, checked)}
+                    />
+                  </div>
+                ))}
               </div>
 
-              <div className="space-y-3">
-                <Label>Monitored Tokens</Label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {["WETH", "USDC", "USDT", "WBTC", "DAI", "ARB", "GMX", "GRT"].map((token) => (
-                    <div key={token} className="flex items-center space-x-2">
-                      <Switch
-                        id={token}
-                        checked={config.enabledTokens.includes(token)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setConfig((prev) => ({
-                              ...prev,
-                              enabledTokens: [...prev.enabledTokens, token],
-                            }))
-                          } else {
-                            setConfig((prev) => ({
-                              ...prev,
-                              enabledTokens: prev.enabledTokens.filter((t) => t !== token),
-                            }))
-                          }
-                        }}
-                      />
-                      <Label htmlFor={token} className="text-sm">
-                        {token}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <Alert className="mt-4">
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Enable at least 2 exchanges to find arbitrage opportunities. Currently enabled:{" "}
+                  {getEnabledExchangesCount()}
+                </AlertDescription>
+              </Alert>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="advanced" className="space-y-6">
+        {/* Token Settings */}
+        <TabsContent value="tokens" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Advanced Settings</CardTitle>
-              <CardDescription>Advanced configuration options for experienced users</CardDescription>
+              <CardTitle>Monitored Tokens</CardTitle>
+              <CardDescription>Select which tokens to monitor for arbitrage opportunities</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(settings.tokens).map(([token, enabled]) => (
+                  <div key={token} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary">{token}</span>
+                      </div>
+                      <div>
+                        <div className="font-medium">{token}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {token === "WETH" && "Wrapped Ethereum"}
+                          {token === "USDC" && "USD Coin"}
+                          {token === "USDT" && "Tether USD"}
+                          {token === "WBTC" && "Wrapped Bitcoin"}
+                          {token === "DAI" && "Dai Stablecoin"}
+                          {token === "ARB" && "Arbitrum Token"}
+                        </div>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={enabled}
+                      onCheckedChange={(checked) => updateSetting(`tokens.${token}`, checked)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <Alert className="mt-4">
+                <CheckCircle className="h-4 w-4" />
                 <AlertDescription>
-                  These settings are for advanced users only. Incorrect configuration may result in failed trades or
-                  losses.
+                  Enable popular trading pairs like WETH/USDC for better arbitrage opportunities. Currently enabled:{" "}
+                  {getEnabledTokensCount()}
                 </AlertDescription>
               </Alert>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-              <div className="space-y-4">
-                <div className="p-4 border rounded-lg">
-                  <h3 className="font-medium mb-2">Current Configuration Status</h3>
-                  <div className="space-y-2 text-sm">
+        {/* Advanced Settings */}
+        <TabsContent value="advanced" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="w-5 h-5" />
+                  Performance Settings
+                </CardTitle>
+                <CardDescription>Advanced performance and execution settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="maxConcurrent">Max Concurrent Trades</Label>
+                  <Input
+                    id="maxConcurrent"
+                    type="number"
+                    value={settings.advanced.maxConcurrentTrades}
+                    onChange={(e) => updateSetting("advanced.maxConcurrentTrades", Number(e.target.value))}
+                    min="1"
+                    max="10"
+                  />
+                  <p className="text-xs text-muted-foreground">Maximum number of trades to execute simultaneously</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="cooldown">Cooldown Period (seconds)</Label>
+                  <Input
+                    id="cooldown"
+                    type="number"
+                    value={settings.advanced.cooldownPeriod}
+                    onChange={(e) => updateSetting("advanced.cooldownPeriod", Number(e.target.value))}
+                    min="1"
+                    max="60"
+                  />
+                  <p className="text-xs text-muted-foreground">Wait time between trade executions</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="priorityFee">Priority Fee (Gwei)</Label>
+                  <Input
+                    id="priorityFee"
+                    type="number"
+                    value={settings.advanced.priorityFee}
+                    onChange={(e) => updateSetting("advanced.priorityFee", Number(e.target.value))}
+                    min="0"
+                    max="50"
+                    step="0.1"
+                  />
+                  <p className="text-xs text-muted-foreground">Additional fee to prioritize transactions</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  MEV Protection
+                </CardTitle>
+                <CardDescription>Configure MEV protection and privacy settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Enable MEV Protection</Label>
+                    <div className="text-sm text-muted-foreground">Protect against front-running attacks</div>
+                  </div>
+                  <Switch
+                    checked={settings.advanced.enableMEVProtection}
+                    onCheckedChange={(checked) => updateSetting("advanced.enableMEVProtection", checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label>Enable Flashbots Relay</Label>
+                    <div className="text-sm text-muted-foreground">Use Flashbots for private mempool</div>
+                  </div>
+                  <Switch
+                    checked={settings.advanced.enableFlashbotsRelay}
+                    onCheckedChange={(checked) => updateSetting("advanced.enableFlashbotsRelay", checked)}
+                  />
+                </div>
+
+                <Alert>
+                  <Shield className="h-4 w-4" />
+                  <AlertDescription>
+                    MEV protection helps prevent front-running but may slightly increase transaction costs.
+                  </AlertDescription>
+                </Alert>
+
+                <div className="p-4 border rounded-lg bg-muted/50">
+                  <h4 className="font-medium mb-2">Current Status</h4>
+                  <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span>Bot Status:</span>
                       <span className={botState.running ? "text-green-600" : "text-gray-600"}>
@@ -302,27 +537,29 @@ export default function ConfigPanel() {
                     </div>
                     <div className="flex justify-between">
                       <span>Auto Execute:</span>
-                      <span className={config.autoExecuteEnabled ? "text-green-600" : "text-gray-600"}>
-                        {config.autoExecuteEnabled ? "Enabled" : "Disabled"}
+                      <span className={settings.trading.autoExecute ? "text-green-600" : "text-gray-600"}>
+                        {settings.trading.autoExecute ? "Enabled" : "Disabled"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Risk Level:</span>
-                      <span className="capitalize">{config.riskLevel}</span>
+                      <span className={`capitalize ${getRiskColor(settings.trading.riskLevel)}`}>
+                        {settings.trading.riskLevel}
+                      </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Enabled Exchanges:</span>
-                      <span>{config.enabledExchanges.length}</span>
+                      <span>Exchanges:</span>
+                      <span>{getEnabledExchangesCount()} enabled</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Monitored Tokens:</span>
-                      <span>{config.enabledTokens.length}</span>
+                      <span>Tokens:</span>
+                      <span>{getEnabledTokensCount()} monitored</span>
                     </div>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
