@@ -18,14 +18,11 @@ export class WebSocketService {
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
 
-  // Real WebSocket endpoints
+  // Public WebSocket endpoints only
   private readonly WS_ENDPOINTS = {
     binance: "wss://stream.binance.com:9443/ws",
     coinbase: "wss://ws-feed.exchange.coinbase.com",
     dexscreener: "wss://io.dexscreener.com/dex/screener/pairs/h24/1",
-    uniswap: "wss://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3",
-    arbitrum: "wss://arbitrum-one.publicnode.com",
-    alchemy: `wss://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
   }
 
   private readonly DEFAULT_CONFIG: WebSocketConfig = {
@@ -41,24 +38,28 @@ export class WebSocketService {
 
   private setupEventListeners() {
     // Handle page visibility changes
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        this.pauseConnections()
-      } else {
-        this.resumeConnections()
-      }
-    })
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          this.pauseConnections()
+        } else {
+          this.resumeConnections()
+        }
+      })
+    }
 
     // Handle network status changes
-    window.addEventListener("online", () => {
-      console.log("🌐 Network connection restored")
-      this.resumeConnections()
-    })
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", () => {
+        console.log("🌐 Network connection restored")
+        this.resumeConnections()
+      })
 
-    window.addEventListener("offline", () => {
-      console.log("🌐 Network connection lost")
-      this.pauseConnections()
-    })
+      window.addEventListener("offline", () => {
+        console.log("🌐 Network connection lost")
+        this.pauseConnections()
+      })
+    }
   }
 
   async startConnections() {
@@ -71,7 +72,6 @@ export class WebSocketService {
     await this.connectToBinance()
     await this.connectToCoinbase()
     await this.connectToDexScreener()
-    await this.connectToArbitrum()
 
     console.log("✅ WebSocket connections established")
   }
@@ -237,65 +237,6 @@ export class WebSocketService {
     }
   }
 
-  private async connectToArbitrum() {
-    try {
-      const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY
-      if (!alchemyKey) {
-        console.warn("No Alchemy API key found, skipping Arbitrum WebSocket")
-        return
-      }
-
-      const wsUrl = `wss://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-      const ws = new WebSocket(wsUrl)
-
-      ws.onopen = () => {
-        console.log("📡 Arbitrum WebSocket connected")
-        this.connections.set("arbitrum", ws)
-        this.reconnectAttempts.set("arbitrum", 0)
-
-        // Subscribe to new blocks and pending transactions
-        const subscribeBlocks = {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_subscribe",
-          params: ["newHeads"],
-        }
-
-        const subscribePendingTxs = {
-          jsonrpc: "2.0",
-          id: 2,
-          method: "eth_subscribe",
-          params: ["newPendingTransactions"],
-        }
-
-        ws.send(JSON.stringify(subscribeBlocks))
-        ws.send(JSON.stringify(subscribePendingTxs))
-        this.startHeartbeat("arbitrum", ws)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          this.handleArbitrumMessage(data)
-        } catch (error) {
-          console.error("Arbitrum message parse error:", error)
-        }
-      }
-
-      ws.onclose = (event) => {
-        console.log(`📡 Arbitrum WebSocket closed: ${event.code} ${event.reason}`)
-        this.connections.delete("arbitrum")
-        this.scheduleReconnect("arbitrum", () => this.connectToArbitrum())
-      }
-
-      ws.onerror = (error) => {
-        console.error("Arbitrum WebSocket error:", error)
-      }
-    } catch (error) {
-      console.error("Arbitrum connection error:", error)
-    }
-  }
-
   private handleBinanceMessage(data: any) {
     if (data.e === "24hrTicker") {
       const message: WebSocketMessage = {
@@ -398,44 +339,6 @@ export class WebSocketService {
     }
   }
 
-  private handleArbitrumMessage(data: any) {
-    if (data.method === "eth_subscription") {
-      if (data.params?.result?.number) {
-        // New block
-        const message: WebSocketMessage = {
-          type: "new_block",
-          data: {
-            source: "arbitrum",
-            blockNumber: Number.parseInt(data.params.result.number, 16),
-            blockHash: data.params.result.hash,
-            timestamp: Number.parseInt(data.params.result.timestamp, 16),
-            gasUsed: Number.parseInt(data.params.result.gasUsed, 16),
-            gasLimit: Number.parseInt(data.params.result.gasLimit, 16),
-            baseFeePerGas: data.params.result.baseFeePerGas
-              ? Number.parseInt(data.params.result.baseFeePerGas, 16)
-              : null,
-          },
-          timestamp: Date.now(),
-        }
-
-        this.notifyHandlers("new_block", message)
-      } else if (typeof data.params?.result === "string") {
-        // New pending transaction
-        const message: WebSocketMessage = {
-          type: "pending_transaction",
-          data: {
-            source: "arbitrum",
-            txHash: data.params.result,
-            timestamp: Date.now(),
-          },
-          timestamp: Date.now(),
-        }
-
-        this.notifyHandlers("pending_transaction", message)
-      }
-    }
-  }
-
   private startHeartbeat(connectionName: string, ws: WebSocket) {
     const interval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -444,8 +347,6 @@ export class WebSocketService {
           ws.send(JSON.stringify({ method: "ping" }))
         } else if (connectionName === "coinbase") {
           ws.send(JSON.stringify({ type: "heartbeat", on: true }))
-        } else if (connectionName === "arbitrum") {
-          ws.send(JSON.stringify({ jsonrpc: "2.0", method: "ping", id: Date.now() }))
         }
       } else {
         clearInterval(interval)

@@ -43,10 +43,9 @@ export class RealTimePriceFeedService {
   private updateIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
   private websocketConnections: Map<string, WebSocket> = new Map()
-  private apiKeys: Map<string, string> = new Map()
   private rateLimiters: Map<string, { lastCall: number; callCount: number }> = new Map()
 
-  // Real API endpoints
+  // Public API endpoints only
   private readonly API_ENDPOINTS = {
     // The Graph Protocol endpoints
     uniswap_v3: "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3",
@@ -55,17 +54,12 @@ export class RealTimePriceFeedService {
 
     // Direct API endpoints
     coingecko: "https://api.coingecko.com/api/v3",
-    coinmarketcap: "https://pro-api.coinmarketcap.com/v1",
     dexscreener: "https://api.dexscreener.com/latest/dex",
     oneinch: "https://api.1inch.io/v5.0/42161", // Arbitrum
 
     // WebSocket endpoints
     binance_ws: "wss://stream.binance.com:9443/ws",
     coinbase_ws: "wss://ws-feed.exchange.coinbase.com",
-
-    // Arbitrum specific
-    arbitrum_rpc: "https://arbitrum-one.publicnode.com",
-    alchemy_arbitrum: `https://arb-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
   }
 
   // Token addresses on Arbitrum
@@ -81,15 +75,7 @@ export class RealTimePriceFeedService {
   }
 
   constructor() {
-    this.initializeAPIKeys()
     this.initializeRateLimiters()
-  }
-
-  private initializeAPIKeys() {
-    this.apiKeys.set("coingecko", process.env.NEXT_PUBLIC_COINGECKO_API_KEY || "")
-    this.apiKeys.set("coinmarketcap", process.env.NEXT_PUBLIC_CMC_API_KEY || "")
-    this.apiKeys.set("alchemy", process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "")
-    this.apiKeys.set("infura", process.env.NEXT_PUBLIC_INFURA_API_KEY || "")
   }
 
   private initializeRateLimiters() {
@@ -177,426 +163,54 @@ export class RealTimePriceFeedService {
       if (this.isActive) {
         await this.updatePriceData(symbol)
       }
-    }, 10000) // Update every 10 seconds to respect rate limits
+    }, 15000) // Update every 15 seconds to respect rate limits
 
     this.updateIntervals.set(symbol, interval)
   }
 
   private async updatePriceData(symbol: string) {
     try {
-      const dexPrices = await Promise.allSettled([
-        this.fetchUniswapV3Price(symbol),
-        this.fetchUniswapV2Price(symbol),
-        this.fetchSushiSwapPrice(symbol),
-        this.fetchDexScreenerPrice(symbol),
-        this.fetchCoinGeckoPrice(symbol),
-      ])
+      // Use server API for price data
+      const response = await fetch("/api/prices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          symbols: [symbol],
+        }),
+      })
 
-      const validPrices: DEXPriceData[] = dexPrices
-        .filter((result) => result.status === "fulfilled")
-        .map((result) => (result as PromiseFulfilledResult<DEXPriceData>).value)
-        .filter((price) => price && price.price > 0)
-
-      if (validPrices.length === 0) {
-        console.warn(`No valid prices found for ${symbol}`)
+      if (!response.ok) {
+        console.warn(`Failed to fetch price data for ${symbol}`)
         return
       }
 
-      const aggregatedData = this.aggregatePriceData(symbol, validPrices)
-      this.priceData.set(symbol, aggregatedData)
-      this.notifySubscribers(symbol, aggregatedData)
+      const data = await response.json()
+
+      if (data.success && data.data[symbol]) {
+        const priceInfo = data.data[symbol]
+
+        // Create mock DEX price data based on the base price
+        const dexPrices: DEXPriceData[] = [
+          {
+            dex: "CoinGecko",
+            price: priceInfo.price,
+            liquidity: priceInfo.marketCap || 0,
+            volume24h: priceInfo.volume24h || 0,
+            fee: 0,
+            timestamp: Date.now(),
+            token0: symbol,
+            token1: "USD",
+          },
+        ]
+
+        const aggregatedData = this.aggregatePriceData(symbol, dexPrices)
+        this.priceData.set(symbol, aggregatedData)
+        this.notifySubscribers(symbol, aggregatedData)
+      }
     } catch (error) {
       console.error(`Error updating price data for ${symbol}:`, error)
-    }
-  }
-
-  private async fetchUniswapV3Price(symbol: string): Promise<DEXPriceData> {
-    if (!(await this.checkRateLimit("thegraph", 100, 60000))) {
-      throw new Error("Rate limit exceeded for The Graph")
-    }
-
-    try {
-      const tokenAddress = this.TOKEN_ADDRESSES[symbol as keyof typeof this.TOKEN_ADDRESSES]
-      const usdcAddress = this.TOKEN_ADDRESSES.USDC
-
-      if (!tokenAddress || !usdcAddress) {
-        throw new Error(`Token address not found for ${symbol}`)
-      }
-
-      const query = `
-        {
-          pools(
-            where: {
-              or: [
-                { token0: "${tokenAddress.toLowerCase()}", token1: "${usdcAddress.toLowerCase()}" },
-                { token0: "${usdcAddress.toLowerCase()}", token1: "${tokenAddress.toLowerCase()}" }
-              ]
-            }
-            orderBy: totalValueLockedUSD
-            orderDirection: desc
-            first: 1
-          ) {
-            id
-            token0 {
-              id
-              symbol
-              decimals
-            }
-            token1 {
-              id
-              symbol
-              decimals
-            }
-            token0Price
-            token1Price
-            totalValueLockedUSD
-            volumeUSD
-            feeTier
-            tick
-            sqrtPrice
-          }
-        }
-      `
-
-      const response = await fetch(this.API_ENDPOINTS.uniswap_v3, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ query }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.errors) {
-        throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`)
-      }
-
-      const pool = data.data?.pools?.[0]
-      if (!pool) {
-        throw new Error(`No Uniswap V3 pool found for ${symbol}`)
-      }
-
-      // Determine which token is our target and get the correct price
-      const isToken0 = pool.token0.symbol === symbol
-      const price = isToken0 ? Number.parseFloat(pool.token0Price) : Number.parseFloat(pool.token1Price)
-
-      return {
-        dex: "Uniswap V3",
-        price,
-        liquidity: Number.parseFloat(pool.totalValueLockedUSD),
-        volume24h: Number.parseFloat(pool.volumeUSD),
-        fee: Number.parseInt(pool.feeTier) / 10000,
-        timestamp: Date.now(),
-        poolAddress: pool.id,
-        token0: pool.token0.symbol,
-        token1: pool.token1.symbol,
-      }
-    } catch (error) {
-      console.error(`Uniswap V3 price fetch error for ${symbol}:`, error)
-      throw error
-    }
-  }
-
-  private async fetchUniswapV2Price(symbol: string): Promise<DEXPriceData> {
-    if (!(await this.checkRateLimit("thegraph", 100, 60000))) {
-      throw new Error("Rate limit exceeded for The Graph")
-    }
-
-    try {
-      const tokenAddress = this.TOKEN_ADDRESSES[symbol as keyof typeof this.TOKEN_ADDRESSES]
-      const usdcAddress = this.TOKEN_ADDRESSES.USDC
-
-      if (!tokenAddress || !usdcAddress) {
-        throw new Error(`Token address not found for ${symbol}`)
-      }
-
-      const query = `
-        {
-          pairs(
-            where: {
-              or: [
-                { token0: "${tokenAddress.toLowerCase()}", token1: "${usdcAddress.toLowerCase()}" },
-                { token0: "${usdcAddress.toLowerCase()}", token1: "${tokenAddress.toLowerCase()}" }
-              ]
-            }
-            orderBy: reserveUSD
-            orderDirection: desc
-            first: 1
-          ) {
-            id
-            token0 {
-              id
-              symbol
-              decimals
-            }
-            token1 {
-              id
-              symbol
-              decimals
-            }
-            token0Price
-            token1Price
-            reserveUSD
-            volumeUSD
-            reserve0
-            reserve1
-          }
-        }
-      `
-
-      const response = await fetch(this.API_ENDPOINTS.uniswap_v2, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ query }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.errors) {
-        throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`)
-      }
-
-      const pair = data.data?.pairs?.[0]
-      if (!pair) {
-        throw new Error(`No Uniswap V2 pair found for ${symbol}`)
-      }
-
-      const isToken0 = pair.token0.symbol === symbol
-      const price = isToken0 ? Number.parseFloat(pair.token0Price) : Number.parseFloat(pair.token1Price)
-
-      return {
-        dex: "Uniswap V2",
-        price,
-        liquidity: Number.parseFloat(pair.reserveUSD),
-        volume24h: Number.parseFloat(pair.volumeUSD),
-        fee: 0.3,
-        timestamp: Date.now(),
-        poolAddress: pair.id,
-        token0: pair.token0.symbol,
-        token1: pair.token1.symbol,
-      }
-    } catch (error) {
-      console.error(`Uniswap V2 price fetch error for ${symbol}:`, error)
-      throw error
-    }
-  }
-
-  private async fetchSushiSwapPrice(symbol: string): Promise<DEXPriceData> {
-    if (!(await this.checkRateLimit("thegraph", 100, 60000))) {
-      throw new Error("Rate limit exceeded for The Graph")
-    }
-
-    try {
-      const tokenAddress = this.TOKEN_ADDRESSES[symbol as keyof typeof this.TOKEN_ADDRESSES]
-      const usdcAddress = this.TOKEN_ADDRESSES.USDC
-
-      if (!tokenAddress || !usdcAddress) {
-        throw new Error(`Token address not found for ${symbol}`)
-      }
-
-      const query = `
-        {
-          pairs(
-            where: {
-              or: [
-                { token0: "${tokenAddress.toLowerCase()}", token1: "${usdcAddress.toLowerCase()}" },
-                { token0: "${usdcAddress.toLowerCase()}", token1: "${tokenAddress.toLowerCase()}" }
-              ]
-            }
-            orderBy: reserveUSD
-            orderDirection: desc
-            first: 1
-          ) {
-            id
-            token0 {
-              id
-              symbol
-              decimals
-            }
-            token1 {
-              id
-              symbol
-              decimals
-            }
-            token0Price
-            token1Price
-            reserveUSD
-            volumeUSD
-          }
-        }
-      `
-
-      const response = await fetch(this.API_ENDPOINTS.sushiswap, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ query }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.errors) {
-        throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`)
-      }
-
-      const pair = data.data?.pairs?.[0]
-      if (!pair) {
-        throw new Error(`No SushiSwap pair found for ${symbol}`)
-      }
-
-      const isToken0 = pair.token0.symbol === symbol
-      const price = isToken0 ? Number.parseFloat(pair.token0Price) : Number.parseFloat(pair.token1Price)
-
-      return {
-        dex: "SushiSwap",
-        price,
-        liquidity: Number.parseFloat(pair.reserveUSD),
-        volume24h: Number.parseFloat(pair.volumeUSD),
-        fee: 0.3,
-        timestamp: Date.now(),
-        poolAddress: pair.id,
-        token0: pair.token0.symbol,
-        token1: pair.token1.symbol,
-      }
-    } catch (error) {
-      console.error(`SushiSwap price fetch error for ${symbol}:`, error)
-      throw error
-    }
-  }
-
-  private async fetchDexScreenerPrice(symbol: string): Promise<DEXPriceData> {
-    if (!(await this.checkRateLimit("dexscreener", 300, 60000))) {
-      throw new Error("Rate limit exceeded for DexScreener")
-    }
-
-    try {
-      const tokenAddress = this.TOKEN_ADDRESSES[symbol as keyof typeof this.TOKEN_ADDRESSES]
-      if (!tokenAddress) {
-        throw new Error(`Token address not found for ${symbol}`)
-      }
-
-      const response = await fetch(`${this.API_ENDPOINTS.dexscreener}/tokens/${tokenAddress}`, {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "FlashloanArbitrageBot/1.0",
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (!data.pairs || data.pairs.length === 0) {
-        throw new Error(`No DexScreener pairs found for ${symbol}`)
-      }
-
-      // Find the pair with highest liquidity
-      const bestPair = data.pairs
-        .filter((pair: any) => pair.chainId === "arbitrum")
-        .sort(
-          (a: any, b: any) => Number.parseFloat(b.liquidity?.usd || "0") - Number.parseFloat(a.liquidity?.usd || "0"),
-        )[0]
-
-      if (!bestPair) {
-        throw new Error(`No suitable DexScreener pair found for ${symbol}`)
-      }
-
-      return {
-        dex: `DexScreener (${bestPair.dexId})`,
-        price: Number.parseFloat(bestPair.priceUsd),
-        liquidity: Number.parseFloat(bestPair.liquidity?.usd || "0"),
-        volume24h: Number.parseFloat(bestPair.volume?.h24 || "0"),
-        fee: 0.3, // Default fee
-        timestamp: Date.now(),
-        poolAddress: bestPair.pairAddress,
-        token0: bestPair.baseToken.symbol,
-        token1: bestPair.quoteToken.symbol,
-      }
-    } catch (error) {
-      console.error(`DexScreener price fetch error for ${symbol}:`, error)
-      throw error
-    }
-  }
-
-  private async fetchCoinGeckoPrice(symbol: string): Promise<DEXPriceData> {
-    if (!(await this.checkRateLimit("coingecko", 50, 60000))) {
-      throw new Error("Rate limit exceeded for CoinGecko")
-    }
-
-    try {
-      const coinIds: { [key: string]: string } = {
-        WETH: "ethereum",
-        USDC: "usd-coin",
-        USDT: "tether",
-        DAI: "dai",
-        WBTC: "wrapped-bitcoin",
-        ARB: "arbitrum",
-        GMX: "gmx",
-      }
-
-      const coinId = coinIds[symbol]
-      if (!coinId) {
-        throw new Error(`CoinGecko ID not found for ${symbol}`)
-      }
-
-      const apiKey = this.apiKeys.get("coingecko")
-      const url = `${this.API_ENDPOINTS.coingecko}/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&include_market_cap=true`
-
-      const headers: HeadersInit = {
-        Accept: "application/json",
-      }
-
-      if (apiKey) {
-        headers["x-cg-demo-api-key"] = apiKey
-      }
-
-      const response = await fetch(url, { headers })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-      const coinData = data[coinId]
-
-      if (!coinData) {
-        throw new Error(`No CoinGecko data found for ${symbol}`)
-      }
-
-      return {
-        dex: "CoinGecko",
-        price: coinData.usd,
-        liquidity: coinData.usd_market_cap || 0,
-        volume24h: coinData.usd_24h_vol || 0,
-        fee: 0,
-        timestamp: Date.now(),
-        token0: symbol,
-        token1: "USD",
-      }
-    } catch (error) {
-      console.error(`CoinGecko price fetch error for ${symbol}:`, error)
-      throw error
     }
   }
 
