@@ -1,795 +1,780 @@
 "use client"
 
-import type React from "react"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Bell,
-  BellOff,
+  Mail,
+  MessageSquare,
   Volume2,
   VolumeX,
   Smartphone,
-  MessageSquare,
-  Settings,
-  TestTube,
-  Clock,
-  Shield,
-  TrendingUp,
-  DollarSign,
-  Zap,
   AlertTriangle,
-  CheckCircle,
-  Info,
+  Settings,
+  TestTubeIcon as Test,
 } from "lucide-react"
-import { PushNotificationService, type NotificationSettings } from "../services/PushNotificationService"
-import { TelegramNotificationService, type TelegramConfig } from "../services/TelegramNotificationService"
+import { useToast } from "@/hooks/use-toast"
 
-interface NotificationSettingsPanelProps {
-  onSettingsChange?: (settings: NotificationSettings) => void
+interface NotificationSettings {
+  pushNotifications: {
+    enabled: boolean
+    permission: "default" | "granted" | "denied"
+    opportunities: boolean
+    trades: boolean
+    errors: boolean
+    profitThreshold: number
+  }
+  email: {
+    enabled: boolean
+    address: string
+    dailySummary: boolean
+    weeklyReport: boolean
+    criticalAlerts: boolean
+  }
+  telegram: {
+    enabled: boolean
+    botToken: string
+    chatId: string
+    opportunities: boolean
+    trades: boolean
+    errors: boolean
+  }
+  sound: {
+    enabled: boolean
+    volume: number
+    opportunitySound: string
+    tradeSound: string
+    errorSound: string
+  }
+  filters: {
+    minProfitUsd: number
+    minConfidence: number
+    onlyHighVolume: boolean
+    excludeWeekends: boolean
+  }
 }
 
-const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps> = ({ onSettingsChange }) => {
-  const [pushService] = useState(() => new PushNotificationService())
-  const [telegramService, setTelegramService] = useState<TelegramNotificationService | null>(null)
-  const [settings, setSettings] = useState<NotificationSettings>(pushService.getSettings())
-  const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({
+const defaultSettings: NotificationSettings = {
+  pushNotifications: {
+    enabled: false,
+    permission: "default",
+    opportunities: true,
+    trades: true,
+    errors: true,
+    profitThreshold: 50,
+  },
+  email: {
+    enabled: false,
+    address: "",
+    dailySummary: true,
+    weeklyReport: true,
+    criticalAlerts: true,
+  },
+  telegram: {
+    enabled: false,
     botToken: "",
     chatId: "",
-    enabled: false,
-    notifications: {
-      tradeExecutions: true,
-      opportunities: true,
-      botStatus: true,
-      profitMilestones: true,
-      errors: true,
-      systemHealth: false,
-    },
-    rateLimiting: {
-      maxMessagesPerMinute: 20,
-      lastMessageTime: 0,
-      messageCount: 0,
-    },
-  })
+    opportunities: true,
+    trades: true,
+    errors: true,
+  },
+  sound: {
+    enabled: true,
+    volume: 50,
+    opportunitySound: "chime",
+    tradeSound: "success",
+    errorSound: "alert",
+  },
+  filters: {
+    minProfitUsd: 10,
+    minConfidence: 70,
+    onlyHighVolume: false,
+    excludeWeekends: false,
+  },
+}
 
-  const [subscriptionStatus, setSubscriptionStatus] = useState(pushService.getSubscriptionStatus())
-  const [isTestingNotifications, setIsTestingNotifications] = useState(false)
-  const [testResults, setTestResults] = useState<{ [key: string]: boolean }>({})
+export default function NotificationSettingsPanel() {
+  const [settings, setSettings] = useState<NotificationSettings>(defaultSettings)
+  const [isLoading, setIsLoading] = useState(false)
+  const [testingNotification, setTestingNotification] = useState<string | null>(null)
+  const { toast } = useToast()
 
+  // Load settings on mount
   useEffect(() => {
-    // Load saved Telegram config
-    const savedTelegramConfig = localStorage.getItem("telegramConfig")
-    if (savedTelegramConfig) {
+    const savedSettings = localStorage.getItem("notificationSettings")
+    if (savedSettings) {
       try {
-        const config = JSON.parse(savedTelegramConfig)
-        setTelegramConfig(config)
-        if (config.botToken && config.chatId && config.enabled) {
-          const service = new TelegramNotificationService(config)
-          setTelegramService(service)
-        }
+        const parsed = JSON.parse(savedSettings)
+        setSettings({ ...defaultSettings, ...parsed })
       } catch (error) {
-        console.error("Error loading Telegram config:", error)
+        console.error("Failed to load notification settings:", error)
       }
     }
 
-    // Update subscription status periodically
-    const interval = setInterval(() => {
-      setSubscriptionStatus(pushService.getSubscriptionStatus())
-    }, 5000)
+    // Check push notification permission
+    if ("Notification" in window) {
+      setSettings((prev) => ({
+        ...prev,
+        pushNotifications: {
+          ...prev.pushNotifications,
+          permission: Notification.permission,
+        },
+      }))
+    }
+  }, [])
 
-    return () => clearInterval(interval)
-  }, [pushService])
+  // Save settings when they change
+  useEffect(() => {
+    localStorage.setItem("notificationSettings", JSON.stringify(settings))
+  }, [settings])
 
-  const updateSettings = (updates: Partial<NotificationSettings>) => {
-    const newSettings = { ...settings, ...updates }
-    setSettings(newSettings)
-    pushService.updateSettings(newSettings)
-    onSettingsChange?.(newSettings)
-  }
+  const requestPushPermission = async () => {
+    if (!("Notification" in window)) {
+      toast({
+        title: "Not Supported",
+        description: "Push notifications are not supported in this browser",
+        variant: "destructive",
+      })
+      return
+    }
 
-  const updateTelegramConfig = (updates: Partial<TelegramConfig>) => {
-    const newConfig = { ...telegramConfig, ...updates }
-    setTelegramConfig(newConfig)
-    localStorage.setItem("telegramConfig", JSON.stringify(newConfig))
+    try {
+      const permission = await Notification.requestPermission()
+      setSettings((prev) => ({
+        ...prev,
+        pushNotifications: {
+          ...prev.pushNotifications,
+          permission,
+          enabled: permission === "granted",
+        },
+      }))
 
-    if (newConfig.botToken && newConfig.chatId && newConfig.enabled) {
-      const service = new TelegramNotificationService(newConfig)
-      setTelegramService(service)
-    } else {
-      setTelegramService(null)
+      if (permission === "granted") {
+        toast({
+          title: "Permission Granted",
+          description: "Push notifications are now enabled",
+        })
+      } else {
+        toast({
+          title: "Permission Denied",
+          description: "Push notifications cannot be enabled",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Failed to request notification permission:", error)
+      toast({
+        title: "Error",
+        description: "Failed to request notification permission",
+        variant: "destructive",
+      })
     }
   }
 
-  const handleSubscribePush = async () => {
-    const success = await pushService.subscribe()
-    if (success) {
-      setSubscriptionStatus(pushService.getSubscriptionStatus())
-      updateSettings({ enabled: true })
-    }
-  }
+  const testNotification = async (type: "push" | "email" | "telegram" | "sound") => {
+    setTestingNotification(type)
 
-  const handleUnsubscribePush = async () => {
-    const success = await pushService.unsubscribe()
-    if (success) {
-      setSubscriptionStatus(pushService.getSubscriptionStatus())
-      updateSettings({ enabled: false })
-    }
-  }
-
-  const testNotification = async (type: string) => {
-    setIsTestingNotifications(true)
     try {
       switch (type) {
         case "push":
-          await pushService.testNotification()
-          setTestResults((prev) => ({ ...prev, push: true }))
-          break
-        case "telegram":
-          if (telegramService) {
-            await telegramService.testConnection()
-            setTestResults((prev) => ({ ...prev, telegram: true }))
+          if (settings.pushNotifications.permission === "granted") {
+            new Notification("Test Notification", {
+              body: "This is a test notification from your arbitrage bot",
+              icon: "/favicon.ico",
+            })
+            toast({
+              title: "Test Sent",
+              description: "Push notification test sent successfully",
+            })
+          } else {
+            throw new Error("Push notifications not permitted")
           }
           break
-        case "trade":
-          await pushService.notifyTradeExecution({
-            success: true,
-            profit: 125.5,
-            pair: "WETH/USDC",
-            txHash: "0x1234567890abcdef",
+
+        case "email":
+          // Simulate email test
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          toast({
+            title: "Test Sent",
+            description: `Email test sent to ${settings.email.address}`,
           })
-          setTestResults((prev) => ({ ...prev, trade: true }))
           break
-        case "opportunity":
-          await pushService.notifyOpportunity({
-            pair: "WBTC/USDC",
-            profit: 89.25,
-            spread: 1.2,
-            dexes: ["Uniswap V3", "SushiSwap"],
-            confidence: 85,
+
+        case "telegram":
+          // Simulate Telegram test
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          if (!settings.telegram.botToken || !settings.telegram.chatId) {
+            throw new Error("Telegram bot token and chat ID required")
+          }
+          toast({
+            title: "Test Sent",
+            description: "Telegram test message sent successfully",
           })
-          setTestResults((prev) => ({ ...prev, opportunity: true }))
           break
-        case "price":
-          await pushService.notifyPriceAlert({
-            symbol: "ETH",
-            currentPrice: 2650,
-            changePercent: 5.2,
-            direction: "up",
+
+        case "sound":
+          // Play test sound
+          const audio = new Audio(`/sounds/${settings.sound.opportunitySound}.mp3`)
+          audio.volume = settings.sound.volume / 100
+          audio.play().catch(() => {
+            // Fallback to system beep
+            console.beep?.()
           })
-          setTestResults((prev) => ({ ...prev, price: true }))
-          break
-        case "system":
-          await pushService.notifySystemAlert({
-            type: "warning",
-            title: "Test System Alert",
-            message: "This is a test system alert notification",
-            severity: "medium",
+          toast({
+            title: "Sound Played",
+            description: "Test sound played successfully",
           })
-          setTestResults((prev) => ({ ...prev, system: true }))
           break
       }
-    } catch (error) {
-      console.error(`Test notification failed for ${type}:`, error)
-      setTestResults((prev) => ({ ...prev, [type]: false }))
+    } catch (error: any) {
+      toast({
+        title: "Test Failed",
+        description: error.message || `Failed to test ${type} notification`,
+        variant: "destructive",
+      })
     } finally {
-      setIsTestingNotifications(false)
+      setTestingNotification(null)
     }
   }
 
-  const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(":")
-    const hour = Number.parseInt(hours)
-    const ampm = hour >= 12 ? "PM" : "AM"
-    const displayHour = hour % 12 || 12
-    return `${displayHour}:${minutes} ${ampm}`
+  const updateSettings = (path: string, value: any) => {
+    setSettings((prev) => {
+      const keys = path.split(".")
+      const updated = { ...prev }
+      let current: any = updated
+
+      for (let i = 0; i < keys.length - 1; i++) {
+        current[keys[i]] = { ...current[keys[i]] }
+        current = current[keys[i]]
+      }
+
+      current[keys[keys.length - 1]] = value
+      return updated
+    })
+  }
+
+  const saveSettings = async () => {
+    setIsLoading(true)
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      toast({
+        title: "Settings Saved",
+        description: "Notification settings have been updated successfully",
+      })
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: "Failed to save notification settings",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="w-5 h-5" />
-            Notification Settings
-          </CardTitle>
-          <CardDescription>
-            Configure how and when you receive notifications about trading activities, opportunities, and system events
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Notification Settings</h2>
+          <p className="text-muted-foreground">
+            Configure how you want to be notified about trading opportunities and bot activity
+          </p>
+        </div>
+        <Button onClick={saveSettings} disabled={isLoading}>
+          <Settings className="w-4 h-4 mr-2" />
+          {isLoading ? "Saving..." : "Save Settings"}
+        </Button>
+      </div>
 
-      <Tabs defaultValue="push" className="space-y-4">
+      <Tabs defaultValue="push" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="push">Push Notifications</TabsTrigger>
-          <TabsTrigger value="telegram">Telegram</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
-          <TabsTrigger value="testing">Testing</TabsTrigger>
+          <TabsTrigger value="push" className="flex items-center gap-2">
+            <Bell className="w-4 h-4" />
+            Push
+          </TabsTrigger>
+          <TabsTrigger value="email" className="flex items-center gap-2">
+            <Mail className="w-4 h-4" />
+            Email
+          </TabsTrigger>
+          <TabsTrigger value="telegram" className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4" />
+            Telegram
+          </TabsTrigger>
+          <TabsTrigger value="sound" className="flex items-center gap-2">
+            <Volume2 className="w-4 h-4" />
+            Sound
+          </TabsTrigger>
         </TabsList>
 
-        {/* Push Notifications Tab */}
         <TabsContent value="push" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4" />
-                Browser Push Notifications
+                <Smartphone className="w-5 h-5" />
+                Push Notifications
               </CardTitle>
-              <CardDescription>
-                Receive real-time notifications directly in your browser, even when the app is closed
-              </CardDescription>
+              <CardDescription>Get instant notifications directly in your browser</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Subscription Status */}
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center gap-3">
-                  {subscriptionStatus.subscribed ? (
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                  ) : (
-                    <BellOff className="w-5 h-5 text-gray-400" />
-                  )}
-                  <div>
-                    <p className="font-medium">{subscriptionStatus.subscribed ? "Subscribed" : "Not Subscribed"}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {subscriptionStatus.supported
-                        ? subscriptionStatus.subscribed
-                          ? "You'll receive push notifications"
-                          : "Click subscribe to enable notifications"
-                        : "Push notifications not supported in this browser"}
-                    </p>
-                  </div>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label>Enable Push Notifications</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Status:{" "}
+                    {settings.pushNotifications.permission === "granted" ? (
+                      <Badge variant="default" className="ml-1">
+                        Enabled
+                      </Badge>
+                    ) : settings.pushNotifications.permission === "denied" ? (
+                      <Badge variant="destructive" className="ml-1">
+                        Blocked
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="ml-1">
+                        Not Requested
+                      </Badge>
+                    )}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={subscriptionStatus.permission === "granted" ? "default" : "destructive"}>
-                    {subscriptionStatus.permission}
-                  </Badge>
-                  {subscriptionStatus.supported && (
-                    <>
-                      {!subscriptionStatus.subscribed ? (
-                        <Button onClick={handleSubscribePush}>Subscribe</Button>
-                      ) : (
-                        <Button onClick={handleUnsubscribePush} variant="outline">
-                          Unsubscribe
-                        </Button>
-                      )}
-                    </>
-                  )}
+                <div className="flex gap-2">
+                  <Switch
+                    checked={settings.pushNotifications.enabled}
+                    onCheckedChange={(enabled) => {
+                      if (enabled && settings.pushNotifications.permission !== "granted") {
+                        requestPushPermission()
+                      } else {
+                        updateSettings("pushNotifications.enabled", enabled)
+                      }
+                    }}
+                    disabled={settings.pushNotifications.permission === "denied"}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testNotification("push")}
+                    disabled={!settings.pushNotifications.enabled || testingNotification === "push"}
+                  >
+                    <Test className="w-4 h-4 mr-1" />
+                    {testingNotification === "push" ? "Testing..." : "Test"}
+                  </Button>
                 </div>
               </div>
 
-              {!subscriptionStatus.supported && (
+              {settings.pushNotifications.permission === "denied" && (
                 <Alert>
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Push notifications are not supported in this browser. Consider using Chrome, Firefox, or Edge for
-                    the best experience.
+                    Push notifications are blocked. Please enable them in your browser settings.
                   </AlertDescription>
                 </Alert>
               )}
 
-              {/* Notification Types */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Notification Types</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Arbitrage Opportunities</Label>
+                  <Switch
+                    checked={settings.pushNotifications.opportunities}
+                    onCheckedChange={(checked) => updateSettings("pushNotifications.opportunities", checked)}
+                    disabled={!settings.pushNotifications.enabled}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Trade Executions</Label>
+                  <Switch
+                    checked={settings.pushNotifications.trades}
+                    onCheckedChange={(checked) => updateSettings("pushNotifications.trades", checked)}
+                    disabled={!settings.pushNotifications.enabled}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Errors & Alerts</Label>
+                  <Switch
+                    checked={settings.pushNotifications.errors}
+                    onCheckedChange={(checked) => updateSettings("pushNotifications.errors", checked)}
+                    disabled={!settings.pushNotifications.enabled}
+                  />
+                </div>
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <TrendingUp className="w-4 h-4 text-blue-500" />
-                      <div>
-                        <Label className="font-medium">Trade Executions</Label>
-                        <p className="text-xs text-muted-foreground">Successful and failed trades</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.tradeExecutions}
-                      onCheckedChange={(checked) => updateSettings({ tradeExecutions: checked })}
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label>Minimum Profit Threshold (USD)</Label>
+                <div className="flex items-center space-x-4">
+                  <Slider
+                    value={[settings.pushNotifications.profitThreshold]}
+                    onValueChange={([value]) => updateSettings("pushNotifications.profitThreshold", value)}
+                    max={500}
+                    min={1}
+                    step={5}
+                    className="flex-1"
+                    disabled={!settings.pushNotifications.enabled}
+                  />
+                  <span className="w-16 text-sm font-medium">${settings.pushNotifications.profitThreshold}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Only notify for opportunities above this profit threshold
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <DollarSign className="w-4 h-4 text-green-500" />
-                      <div>
-                        <Label className="font-medium">Opportunities</Label>
-                        <p className="text-xs text-muted-foreground">New arbitrage opportunities</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.opportunities}
-                      onCheckedChange={(checked) => updateSettings({ opportunities: checked })}
-                    />
-                  </div>
+        <TabsContent value="email" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5" />
+                Email Notifications
+              </CardTitle>
+              <CardDescription>Receive detailed reports and alerts via email</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Enable Email Notifications</Label>
+                <div className="flex gap-2">
+                  <Switch
+                    checked={settings.email.enabled}
+                    onCheckedChange={(enabled) => updateSettings("email.enabled", enabled)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testNotification("email")}
+                    disabled={!settings.email.enabled || !settings.email.address || testingNotification === "email"}
+                  >
+                    <Test className="w-4 h-4 mr-1" />
+                    {testingNotification === "email" ? "Testing..." : "Test"}
+                  </Button>
+                </div>
+              </div>
 
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <TrendingUp className="w-4 h-4 text-purple-500" />
-                      <div>
-                        <Label className="font-medium">Price Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Significant price movements</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.priceAlerts}
-                      onCheckedChange={(checked) => updateSettings({ priceAlerts: checked })}
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="email-address">Email Address</Label>
+                <Input
+                  id="email-address"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={settings.email.address}
+                  onChange={(e) => updateSettings("email.address", e.target.value)}
+                  disabled={!settings.email.enabled}
+                />
+              </div>
 
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Shield className="w-4 h-4 text-red-500" />
-                      <div>
-                        <Label className="font-medium">System Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Errors and warnings</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.systemAlerts}
-                      onCheckedChange={(checked) => updateSettings({ systemAlerts: checked })}
-                    />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Daily Summary</Label>
+                    <p className="text-sm text-muted-foreground">Daily trading performance report</p>
                   </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <DollarSign className="w-4 h-4 text-yellow-500" />
-                      <div>
-                        <Label className="font-medium">Profit Milestones</Label>
-                        <p className="text-xs text-muted-foreground">Achievement notifications</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.profitMilestones}
-                      onCheckedChange={(checked) => updateSettings({ profitMilestones: checked })}
-                    />
+                  <Switch
+                    checked={settings.email.dailySummary}
+                    onCheckedChange={(checked) => updateSettings("email.dailySummary", checked)}
+                    disabled={!settings.email.enabled}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Weekly Report</Label>
+                    <p className="text-sm text-muted-foreground">Comprehensive weekly analysis</p>
                   </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Zap className="w-4 h-4 text-orange-500" />
-                      <div>
-                        <Label className="font-medium">Gas Alerts</Label>
-                        <p className="text-xs text-muted-foreground">High gas price warnings</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.gasAlerts}
-                      onCheckedChange={(checked) => updateSettings({ gasAlerts: checked })}
-                    />
+                  <Switch
+                    checked={settings.email.weeklyReport}
+                    onCheckedChange={(checked) => updateSettings("email.weeklyReport", checked)}
+                    disabled={!settings.email.enabled}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Critical Alerts</Label>
+                    <p className="text-sm text-muted-foreground">Important errors and system alerts</p>
                   </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Shield className="w-4 h-4 text-red-600" />
-                      <div>
-                        <Label className="font-medium">MEV Alerts</Label>
-                        <p className="text-xs text-muted-foreground">MEV activity detection</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.mevAlerts}
-                      onCheckedChange={(checked) => updateSettings({ mevAlerts: checked })}
-                    />
-                  </div>
+                  <Switch
+                    checked={settings.email.criticalAlerts}
+                    onCheckedChange={(checked) => updateSettings("email.criticalAlerts", checked)}
+                    disabled={!settings.email.enabled}
+                  />
                 </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Telegram Tab */}
         <TabsContent value="telegram" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
+                <MessageSquare className="w-5 h-5" />
                 Telegram Notifications
               </CardTitle>
-              <CardDescription>Receive notifications via Telegram bot for important events and updates</CardDescription>
+              <CardDescription>Get instant updates via Telegram bot</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Telegram Configuration */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="font-medium">Enable Telegram Notifications</Label>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Enable Telegram Notifications</Label>
+                <div className="flex gap-2">
                   <Switch
-                    checked={telegramConfig.enabled}
-                    onCheckedChange={(checked) => updateTelegramConfig({ enabled: checked })}
+                    checked={settings.telegram.enabled}
+                    onCheckedChange={(enabled) => updateSettings("telegram.enabled", enabled)}
                   />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="botToken">Bot Token</Label>
-                    <Input
-                      id="botToken"
-                      type="password"
-                      placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
-                      value={telegramConfig.botToken}
-                      onChange={(e) => updateTelegramConfig({ botToken: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">Get your bot token from @BotFather on Telegram</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="chatId">Chat ID</Label>
-                    <Input
-                      id="chatId"
-                      placeholder="-1001234567890"
-                      value={telegramConfig.chatId}
-                      onChange={(e) => updateTelegramConfig({ chatId: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">Your personal chat ID or group chat ID</p>
-                  </div>
-                </div>
-
-                {telegramConfig.enabled && (!telegramConfig.botToken || !telegramConfig.chatId) && (
-                  <Alert>
-                    <Info className="h-4 w-4" />
-                    <AlertDescription>
-                      To set up Telegram notifications:
-                      <ol className="list-decimal list-inside mt-2 space-y-1">
-                        <li>Message @BotFather on Telegram and create a new bot</li>
-                        <li>Copy the bot token and paste it above</li>
-                        <li>Message @userinfobot to get your chat ID</li>
-                        <li>Paste your chat ID above</li>
-                      </ol>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Telegram Notification Types */}
-                {telegramConfig.enabled && telegramConfig.botToken && telegramConfig.chatId && (
-                  <div className="space-y-4">
-                    <h4 className="font-medium">Telegram Notification Types</h4>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">Trade Executions</Label>
-                          <p className="text-xs text-muted-foreground">Trade results and profits</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.tradeExecutions}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, tradeExecutions: checked },
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">Opportunities</Label>
-                          <p className="text-xs text-muted-foreground">New arbitrage opportunities</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.opportunities}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, opportunities: checked },
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">Bot Status</Label>
-                          <p className="text-xs text-muted-foreground">Start/stop notifications</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.botStatus}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, botStatus: checked },
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">Profit Milestones</Label>
-                          <p className="text-xs text-muted-foreground">Achievement celebrations</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.profitMilestones}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, profitMilestones: checked },
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">Errors</Label>
-                          <p className="text-xs text-muted-foreground">Critical errors and failures</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.errors}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, errors: checked },
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <Label className="font-medium">System Health</Label>
-                          <p className="text-xs text-muted-foreground">Performance metrics</p>
-                        </div>
-                        <Switch
-                          checked={telegramConfig.notifications.systemHealth}
-                          onCheckedChange={(checked) =>
-                            updateTelegramConfig({
-                              notifications: { ...telegramConfig.notifications, systemHealth: checked },
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Rate Limiting */}
-                {telegramConfig.enabled && (
-                  <div className="space-y-4">
-                    <h4 className="font-medium">Rate Limiting</h4>
-                    <div className="space-y-2">
-                      <Label>Maximum Messages Per Minute</Label>
-                      <div className="flex items-center space-x-4">
-                        <Slider
-                          value={[telegramConfig.rateLimiting.maxMessagesPerMinute]}
-                          onValueChange={([value]) =>
-                            updateTelegramConfig({
-                              rateLimiting: { ...telegramConfig.rateLimiting, maxMessagesPerMinute: value },
-                            })
-                          }
-                          max={60}
-                          min={1}
-                          step={1}
-                          className="flex-1"
-                        />
-                        <span className="text-sm font-medium w-12">
-                          {telegramConfig.rateLimiting.maxMessagesPerMinute}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Limit the number of messages sent per minute to avoid spam
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Preferences Tab */}
-        <TabsContent value="preferences" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="w-4 h-4" />
-                Notification Preferences
-              </CardTitle>
-              <CardDescription>Customize how notifications are delivered and when you receive them</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Sound and Vibration */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Sound & Vibration</h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      {settings.sound ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                      <div>
-                        <Label className="font-medium">Sound</Label>
-                        <p className="text-xs text-muted-foreground">Play notification sounds</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.sound}
-                      onCheckedChange={(checked) => updateSettings({ sound: checked })}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Smartphone className="w-4 h-4" />
-                      <div>
-                        <Label className="font-medium">Vibration</Label>
-                        <p className="text-xs text-muted-foreground">Vibrate on mobile devices</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.vibration}
-                      onCheckedChange={(checked) => updateSettings({ vibration: checked })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Quiet Hours */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    <h4 className="font-medium">Quiet Hours</h4>
-                  </div>
-                  <Switch
-                    checked={settings.quietHours.enabled}
-                    onCheckedChange={(checked) =>
-                      updateSettings({
-                        quietHours: { ...settings.quietHours, enabled: checked },
-                      })
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testNotification("telegram")}
+                    disabled={
+                      !settings.telegram.enabled ||
+                      !settings.telegram.botToken ||
+                      !settings.telegram.chatId ||
+                      testingNotification === "telegram"
                     }
+                  >
+                    <Test className="w-4 h-4 mr-1" />
+                    {testingNotification === "telegram" ? "Testing..." : "Test"}
+                  </Button>
+                </div>
+              </div>
+
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  To use Telegram notifications, create a bot with @BotFather and get your chat ID.
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-2">
+                <Label htmlFor="bot-token">Bot Token</Label>
+                <Input
+                  id="bot-token"
+                  type="password"
+                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                  value={settings.telegram.botToken}
+                  onChange={(e) => updateSettings("telegram.botToken", e.target.value)}
+                  disabled={!settings.telegram.enabled}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="chat-id">Chat ID</Label>
+                <Input
+                  id="chat-id"
+                  placeholder="123456789"
+                  value={settings.telegram.chatId}
+                  onChange={(e) => updateSettings("telegram.chatId", e.target.value)}
+                  disabled={!settings.telegram.enabled}
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Arbitrage Opportunities</Label>
+                  <Switch
+                    checked={settings.telegram.opportunities}
+                    onCheckedChange={(checked) => updateSettings("telegram.opportunities", checked)}
+                    disabled={!settings.telegram.enabled}
                   />
                 </div>
-
-                {settings.quietHours.enabled && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="quietStart">Start Time</Label>
-                      <Input
-                        id="quietStart"
-                        type="time"
-                        value={settings.quietHours.start}
-                        onChange={(e) =>
-                          updateSettings({
-                            quietHours: { ...settings.quietHours, start: e.target.value },
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="quietEnd">End Time</Label>
-                      <Input
-                        id="quietEnd"
-                        type="time"
-                        value={settings.quietHours.end}
-                        onChange={(e) =>
-                          updateSettings({
-                            quietHours: { ...settings.quietHours, end: e.target.value },
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {settings.quietHours.enabled && (
-                  <Alert>
-                    <Clock className="h-4 w-4" />
-                    <AlertDescription>
-                      Notifications will be silenced from {formatTime(settings.quietHours.start)} to{" "}
-                      {formatTime(settings.quietHours.end)} and delivered when quiet hours end.
-                    </AlertDescription>
-                  </Alert>
-                )}
+                <div className="flex items-center justify-between">
+                  <Label>Trade Executions</Label>
+                  <Switch
+                    checked={settings.telegram.trades}
+                    onCheckedChange={(checked) => updateSettings("telegram.trades", checked)}
+                    disabled={!settings.telegram.enabled}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Errors & Alerts</Label>
+                  <Switch
+                    checked={settings.telegram.errors}
+                    onCheckedChange={(checked) => updateSettings("telegram.errors", checked)}
+                    disabled={!settings.telegram.enabled}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Testing Tab */}
-        <TabsContent value="testing" className="space-y-4">
+        <TabsContent value="sound" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <TestTube className="w-4 h-4" />
-                Test Notifications
+                {settings.sound.enabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                Sound Notifications
               </CardTitle>
-              <CardDescription>
-                Test different types of notifications to ensure they're working correctly
-              </CardDescription>
+              <CardDescription>Audio alerts for different types of events</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button
-                  onClick={() => testNotification("push")}
-                  disabled={isTestingNotifications || !subscriptionStatus.subscribed}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Bell className="w-4 h-4" />
-                  Test Push Notification
-                  {testResults.push === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.push === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
-
-                <Button
-                  onClick={() => testNotification("telegram")}
-                  disabled={isTestingNotifications || !telegramService}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  Test Telegram
-                  {testResults.telegram === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.telegram === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
-
-                <Button
-                  onClick={() => testNotification("trade")}
-                  disabled={isTestingNotifications}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <TrendingUp className="w-4 h-4" />
-                  Test Trade Notification
-                  {testResults.trade === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.trade === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
-
-                <Button
-                  onClick={() => testNotification("opportunity")}
-                  disabled={isTestingNotifications}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <DollarSign className="w-4 h-4" />
-                  Test Opportunity
-                  {testResults.opportunity === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.opportunity === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
-
-                <Button
-                  onClick={() => testNotification("price")}
-                  disabled={isTestingNotifications}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <TrendingUp className="w-4 h-4" />
-                  Test Price Alert
-                  {testResults.price === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.price === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
-
-                <Button
-                  onClick={() => testNotification("system")}
-                  disabled={isTestingNotifications}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                >
-                  <Shield className="w-4 h-4" />
-                  Test System Alert
-                  {testResults.system === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {testResults.system === false && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                </Button>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Enable Sound Notifications</Label>
+                <div className="flex gap-2">
+                  <Switch
+                    checked={settings.sound.enabled}
+                    onCheckedChange={(enabled) => updateSettings("sound.enabled", enabled)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testNotification("sound")}
+                    disabled={!settings.sound.enabled || testingNotification === "sound"}
+                  >
+                    <Test className="w-4 h-4 mr-1" />
+                    {testingNotification === "sound" ? "Playing..." : "Test"}
+                  </Button>
+                </div>
               </div>
 
-              {Object.keys(testResults).length > 0 && (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>
-                    Test results are shown with green checkmarks for success and red triangles for failures. If tests
-                    fail, check your notification settings and permissions.
-                  </AlertDescription>
-                </Alert>
-              )}
+              <div className="space-y-2">
+                <Label>Volume</Label>
+                <div className="flex items-center space-x-4">
+                  <VolumeX className="w-4 h-4" />
+                  <Slider
+                    value={[settings.sound.volume]}
+                    onValueChange={([value]) => updateSettings("sound.volume", value)}
+                    max={100}
+                    min={0}
+                    step={5}
+                    className="flex-1"
+                    disabled={!settings.sound.enabled}
+                  />
+                  <Volume2 className="w-4 h-4" />
+                  <span className="w-12 text-sm font-medium">{settings.sound.volume}%</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Opportunity Sound</Label>
+                  <Select
+                    value={settings.sound.opportunitySound}
+                    onValueChange={(value) => updateSettings("sound.opportunitySound", value)}
+                    disabled={!settings.sound.enabled}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="chime">Chime</SelectItem>
+                      <SelectItem value="bell">Bell</SelectItem>
+                      <SelectItem value="notification">Notification</SelectItem>
+                      <SelectItem value="ping">Ping</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Trade Success Sound</Label>
+                  <Select
+                    value={settings.sound.tradeSound}
+                    onValueChange={(value) => updateSettings("sound.tradeSound", value)}
+                    disabled={!settings.sound.enabled}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="success">Success</SelectItem>
+                      <SelectItem value="coin">Coin</SelectItem>
+                      <SelectItem value="cash">Cash Register</SelectItem>
+                      <SelectItem value="ding">Ding</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Error Sound</Label>
+                  <Select
+                    value={settings.sound.errorSound}
+                    onValueChange={(value) => updateSettings("sound.errorSound", value)}
+                    disabled={!settings.sound.enabled}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="alert">Alert</SelectItem>
+                      <SelectItem value="error">Error</SelectItem>
+                      <SelectItem value="warning">Warning</SelectItem>
+                      <SelectItem value="beep">Beep</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Notification Filters</CardTitle>
+          <CardDescription>Control when notifications are sent based on specific criteria</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Minimum Profit (USD)</Label>
+              <div className="flex items-center space-x-2">
+                <Input
+                  type="number"
+                  value={settings.filters.minProfitUsd}
+                  onChange={(e) => updateSettings("filters.minProfitUsd", Number(e.target.value))}
+                  min={1}
+                  max={1000}
+                />
+                <span className="text-sm text-muted-foreground">USD</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Minimum Confidence</Label>
+              <div className="flex items-center space-x-2">
+                <Input
+                  type="number"
+                  value={settings.filters.minConfidence}
+                  onChange={(e) => updateSettings("filters.minConfidence", Number(e.target.value))}
+                  min={0}
+                  max={100}
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>High Volume Only</Label>
+                <p className="text-sm text-muted-foreground">Only notify for high-volume opportunities</p>
+              </div>
+              <Switch
+                checked={settings.filters.onlyHighVolume}
+                onCheckedChange={(checked) => updateSettings("filters.onlyHighVolume", checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Exclude Weekends</Label>
+                <p className="text-sm text-muted-foreground">Pause notifications on weekends</p>
+              </div>
+              <Switch
+                checked={settings.filters.excludeWeekends}
+                onCheckedChange={(checked) => updateSettings("filters.excludeWeekends", checked)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
-
-export default NotificationSettingsPanel

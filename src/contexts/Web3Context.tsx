@@ -1,248 +1,250 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import Web3 from "web3"
-import type { Contract } from "web3-eth-contract"
+import { createContext, useContext, useState, useEffect, useCallback } from "react"
+
+declare global {
+  interface Window {
+    ethereum?: any
+  }
+}
 
 interface Web3ContextType {
-  web3: Web3 | null
   account: string | null
-  contract: Contract | null
   isConnected: boolean
-  chainId: number | null
+  isConnecting: boolean
   balance: string
+  chainId: number | null
   gasPrice: string
   connectWallet: () => Promise<void>
   disconnectWallet: () => void
-  switchToArbitrum: () => Promise<void>
+  switchNetwork: (chainId: number) => Promise<void>
+  getBalance: () => Promise<void>
+  error: string | null
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined)
 
-const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS || ""
-const ARBITRUM_CHAIN_ID = 42161
-const ARBITRUM_RPC = process.env.REACT_APP_ARBITRUM_RPC || "https://arbitrum-one.publicnode.com"
-
-const CONTRACT_ABI = [
-  {
-    inputs: [
-      { internalType: "address[2]", name: "tokens", type: "address[2]" },
-      { internalType: "uint256[2]", name: "amounts", type: "uint256[2]" },
-      { internalType: "address[2]", name: "targets", type: "address[2]" },
-      { internalType: "bytes[2]", name: "calldatas", type: "bytes[2]" },
-      { internalType: "bool[2]", name: "useAaveFlags", type: "bool[2]" },
-    ],
-    name: "executeBundle",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "newGasPrice", type: "uint256" }],
-    name: "setGasPrice",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "newSlippage", type: "uint256" }],
-    name: "setSlippage",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-]
-
-export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [web3, setWeb3] = useState<Web3 | null>(null)
+export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [account, setAccount] = useState<string | null>(null)
-  const [contract, setContract] = useState<Contract | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [chainId, setChainId] = useState<number | null>(null)
+  const [isConnecting, setIsConnecting] = useState(false)
   const [balance, setBalance] = useState("0")
+  const [chainId, setChainId] = useState<number | null>(null)
   const [gasPrice, setGasPrice] = useState("0")
+  const [error, setError] = useState<string | null>(null)
 
+  // Check if wallet is already connected
   useEffect(() => {
-    initializeWeb3()
+    checkConnection()
     setupEventListeners()
   }, [])
 
-  useEffect(() => {
-    if (web3 && account) {
-      updateBalance()
-      updateGasPrice()
-      const interval = setInterval(() => {
-        updateBalance()
-        updateGasPrice()
-      }, 30000)
-      return () => clearInterval(interval)
-    }
-  }, [web3, account])
-
-  const initializeWeb3 = async () => {
-    if (window.ethereum) {
-      const web3Instance = new Web3(window.ethereum)
-      setWeb3(web3Instance)
-
+  const checkConnection = async () => {
+    if (typeof window !== "undefined" && window.ethereum) {
       try {
-        const accounts = await web3Instance.eth.getAccounts()
+        const accounts = await window.ethereum.request({ method: "eth_accounts" })
         if (accounts.length > 0) {
           setAccount(accounts[0])
           setIsConnected(true)
-
-          const networkId = await web3Instance.eth.getChainId()
-          setChainId(networkId)
-
-          if (CONTRACT_ADDRESS) {
-            const contractInstance = new web3Instance.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS)
-            setContract(contractInstance)
-          }
+          await getChainId()
+          await getBalance()
+          await getGasPrice()
         }
       } catch (error) {
-        console.error("Error initializing Web3:", error)
+        console.error("Failed to check wallet connection:", error)
       }
-    } else {
-      // Fallback to Arbitrum RPC
-      const web3Instance = new Web3(ARBITRUM_RPC)
-      setWeb3(web3Instance)
     }
   }
 
   const setupEventListeners = () => {
-    if (window.ethereum) {
-      window.ethereum.on("accountsChanged", (accounts: string[]) => {
-        if (accounts.length > 0) {
-          setAccount(accounts[0])
-          setIsConnected(true)
-        } else {
-          disconnectWallet()
-        }
-      })
-
-      window.ethereum.on("chainChanged", (chainId: string) => {
-        setChainId(Number.parseInt(chainId, 16))
-        window.location.reload()
-      })
+    if (typeof window !== "undefined" && window.ethereum) {
+      window.ethereum.on("accountsChanged", handleAccountsChanged)
+      window.ethereum.on("chainChanged", handleChainChanged)
+      window.ethereum.on("disconnect", handleDisconnect)
     }
   }
 
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      throw new Error("MetaMask not installed")
+  const handleAccountsChanged = (accounts: string[]) => {
+    if (accounts.length === 0) {
+      disconnectWallet()
+    } else {
+      setAccount(accounts[0])
+      getBalance()
     }
+  }
+
+  const handleChainChanged = (chainId: string) => {
+    setChainId(Number.parseInt(chainId, 16))
+    getBalance()
+    getGasPrice()
+  }
+
+  const handleDisconnect = () => {
+    disconnectWallet()
+  }
+
+  const connectWallet = useCallback(async () => {
+    if (typeof window === "undefined" || !window.ethereum) {
+      setError("MetaMask is not installed. Please install MetaMask to continue.")
+      return
+    }
+
+    setIsConnecting(true)
+    setError(null)
 
     try {
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts",
       })
 
-      setAccount(accounts[0])
-      setIsConnected(true)
+      if (accounts.length > 0) {
+        setAccount(accounts[0])
+        setIsConnected(true)
+        await getChainId()
+        await getBalance()
+        await getGasPrice()
 
-      const networkId = await web3!.eth.getChainId()
-      setChainId(networkId)
+        // Try to switch to Arbitrum if not already
+        const arbitrumChainId = 42161
+        const currentChainId = await window.ethereum.request({ method: "eth_chainId" })
 
-      if (networkId !== ARBITRUM_CHAIN_ID) {
-        await switchToArbitrum()
+        if (Number.parseInt(currentChainId, 16) !== arbitrumChainId) {
+          try {
+            await switchNetwork(arbitrumChainId)
+          } catch (switchError) {
+            console.warn("Failed to switch to Arbitrum:", switchError)
+          }
+        }
       }
-
-      if (CONTRACT_ADDRESS) {
-        const contractInstance = new web3!.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS)
-        setContract(contractInstance)
+    } catch (error: any) {
+      console.error("Failed to connect wallet:", error)
+      if (error.code === 4001) {
+        setError("Connection rejected by user")
+      } else {
+        setError("Failed to connect wallet. Please try again.")
       }
-    } catch (error) {
-      console.error("Error connecting wallet:", error)
-      throw error
+    } finally {
+      setIsConnecting(false)
     }
-  }
+  }, [])
 
-  const disconnectWallet = () => {
+  const disconnectWallet = useCallback(() => {
     setAccount(null)
-    setContract(null)
     setIsConnected(false)
-    setChainId(null)
     setBalance("0")
-  }
+    setChainId(null)
+    setGasPrice("0")
+    setError(null)
+  }, [])
 
-  const switchToArbitrum = async () => {
+  const switchNetwork = useCallback(async (targetChainId: number) => {
     if (!window.ethereum) return
 
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${ARBITRUM_CHAIN_ID.toString(16)}` }],
+        params: [{ chainId: `0x${targetChainId.toString(16)}` }],
       })
     } catch (error: any) {
       if (error.code === 4902) {
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: `0x${ARBITRUM_CHAIN_ID.toString(16)}`,
-              chainName: "Arbitrum One",
-              nativeCurrency: {
-                name: "ETH",
-                symbol: "ETH",
-                decimals: 18,
+        // Network not added, try to add it
+        if (targetChainId === 42161) {
+          // Add Arbitrum One
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: "0xA4B1",
+                chainName: "Arbitrum One",
+                nativeCurrency: {
+                  name: "Ethereum",
+                  symbol: "ETH",
+                  decimals: 18,
+                },
+                rpcUrls: ["https://arb1.arbitrum.io/rpc"],
+                blockExplorerUrls: ["https://arbiscan.io/"],
               },
-              rpcUrls: [ARBITRUM_RPC],
-              blockExplorerUrls: ["https://arbiscan.io/"],
-            },
-          ],
+            ],
+          })
+        }
+      } else {
+        throw error
+      }
+    }
+  }, [])
+
+  const getChainId = async () => {
+    if (window.ethereum) {
+      try {
+        const chainId = await window.ethereum.request({ method: "eth_chainId" })
+        setChainId(Number.parseInt(chainId, 16))
+      } catch (error) {
+        console.error("Failed to get chain ID:", error)
+      }
+    }
+  }
+
+  const getBalance = useCallback(async () => {
+    if (window.ethereum && account) {
+      try {
+        const balance = await window.ethereum.request({
+          method: "eth_getBalance",
+          params: [account, "latest"],
         })
-      }
-    }
-  }
 
-  const updateBalance = async () => {
-    if (web3 && account) {
-      try {
-        const balanceWei = await web3.eth.getBalance(account)
-        const balanceEth = web3.utils.fromWei(balanceWei, "ether")
-        setBalance(Number.parseFloat(balanceEth).toFixed(4))
+        // Convert from wei to ETH
+        const balanceInEth = Number.parseInt(balance, 16) / Math.pow(10, 18)
+        setBalance(balanceInEth.toFixed(4))
       } catch (error) {
-        console.error("Error updating balance:", error)
+        console.error("Failed to get balance:", error)
+        setBalance("0")
       }
     }
-  }
+  }, [account])
 
-  const updateGasPrice = async () => {
-    if (web3) {
+  const getGasPrice = async () => {
+    if (window.ethereum) {
       try {
-        const gasPriceWei = await web3.eth.getGasPrice()
-        const gasPriceGwei = web3.utils.fromWei(gasPriceWei, "gwei")
-        setGasPrice(Number.parseFloat(gasPriceGwei).toFixed(1))
+        const gasPrice = await window.ethereum.request({ method: "eth_gasPrice" })
+        const gasPriceInGwei = Number.parseInt(gasPrice, 16) / Math.pow(10, 9)
+        setGasPrice(gasPriceInGwei.toFixed(2))
       } catch (error) {
-        console.error("Error updating gas price:", error)
+        console.error("Failed to get gas price:", error)
+        setGasPrice("0")
       }
     }
   }
 
-  return (
-    <Web3Context.Provider
-      value={{
-        web3,
-        account,
-        contract,
-        isConnected,
-        chainId,
-        balance,
-        gasPrice,
-        connectWallet,
-        disconnectWallet,
-        switchToArbitrum,
-      }}
-    >
-      {children}
-    </Web3Context.Provider>
-  )
+  // Update gas price periodically
+  useEffect(() => {
+    if (isConnected) {
+      const interval = setInterval(getGasPrice, 30000) // Every 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [isConnected])
+
+  const value: Web3ContextType = {
+    account,
+    isConnected,
+    isConnecting,
+    balance,
+    chainId,
+    gasPrice,
+    connectWallet,
+    disconnectWallet,
+    switchNetwork,
+    getBalance,
+    error,
+  }
+
+  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>
 }
 
 export const useWeb3 = () => {
   const context = useContext(Web3Context)
-  if (!context) {
-    throw new Error("useWeb3 must be used within Web3Provider")
+  if (context === undefined) {
+    throw new Error("useWeb3 must be used within a Web3Provider")
   }
   return context
 }
