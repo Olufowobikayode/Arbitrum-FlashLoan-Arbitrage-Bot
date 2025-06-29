@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Toaster } from "react-hot-toast"
+import { Toaster } from "sonner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Web3Provider } from "@/src/contexts/Web3Context"
 import { BotProvider } from "@/src/contexts/BotContext"
@@ -31,12 +31,16 @@ type ViewType =
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>("dashboard")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [isSetupComplete, setIsSetupComplete] = useState(true)
+  const [isSetupComplete, setIsSetupComplete] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Check if setup is complete
-    const setupComplete = localStorage.getItem("setupComplete")
-    setIsSetupComplete(setupComplete === "true")
+    // Only access localStorage on client side
+    if (typeof window !== "undefined") {
+      const setupComplete = localStorage.getItem("setupComplete")
+      setIsSetupComplete(setupComplete === "true")
+    }
+    setIsLoading(false)
   }, [])
 
   const handleViewChange = (view: ViewType) => {
@@ -44,7 +48,9 @@ export default function App() {
   }
 
   const handleSetupComplete = () => {
-    localStorage.setItem("setupComplete", "true")
+    if (typeof window !== "undefined") {
+      localStorage.setItem("setupComplete", "true")
+    }
     setIsSetupComplete(true)
     setCurrentView("dashboard")
   }
@@ -76,22 +82,22 @@ export default function App() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+        </div>
+      </ThemeProvider>
+    )
+  }
+
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <Web3Provider>
         <BotProvider>
           <div className="min-h-screen bg-background">
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                duration: 4000,
-                style: {
-                  background: "hsl(var(--background))",
-                  color: "hsl(var(--foreground))",
-                  border: "1px solid hsl(var(--border))",
-                },
-              }}
-            />
+            <Toaster />
 
             {isSetupComplete && (
               <Header onMenuToggle={() => setSidebarCollapsed(!sidebarCollapsed)} currentView={currentView} />

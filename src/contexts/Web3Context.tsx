@@ -29,15 +29,17 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
   const [account, setAccount] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
-  const [balance, setBalance] = useState("0")
+  const [balance, setBalance] = useState("0.0000")
   const [chainId, setChainId] = useState<number | null>(null)
   const [gasPrice, setGasPrice] = useState("0")
   const [error, setError] = useState<string | null>(null)
 
-  // Check if wallet is already connected
+  // Check if wallet is already connected (client-side only)
   useEffect(() => {
-    checkConnection()
-    setupEventListeners()
+    if (typeof window !== "undefined") {
+      checkConnection()
+      setupEventListeners()
+    }
   }, [])
 
   const checkConnection = async () => {
@@ -132,14 +134,14 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
   const disconnectWallet = useCallback(() => {
     setAccount(null)
     setIsConnected(false)
-    setBalance("0")
+    setBalance("0.0000")
     setChainId(null)
     setGasPrice("0")
     setError(null)
   }, [])
 
   const switchNetwork = useCallback(async (targetChainId: number) => {
-    if (!window.ethereum) return
+    if (typeof window === "undefined" || !window.ethereum) return
 
     try {
       await window.ethereum.request({
@@ -175,7 +177,7 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const getChainId = async () => {
-    if (window.ethereum) {
+    if (typeof window !== "undefined" && window.ethereum) {
       try {
         const chainId = await window.ethereum.request({ method: "eth_chainId" })
         setChainId(Number.parseInt(chainId, 16))
@@ -186,7 +188,7 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const getBalance = useCallback(async () => {
-    if (window.ethereum && account) {
+    if (typeof window !== "undefined" && window.ethereum && account) {
       try {
         const balance = await window.ethereum.request({
           method: "eth_getBalance",
@@ -198,13 +200,13 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
         setBalance(balanceInEth.toFixed(4))
       } catch (error) {
         console.error("Failed to get balance:", error)
-        setBalance("0")
+        setBalance("0.0000")
       }
     }
   }, [account])
 
   const getGasPrice = async () => {
-    if (window.ethereum) {
+    if (typeof window !== "undefined" && window.ethereum) {
       try {
         const gasPrice = await window.ethereum.request({ method: "eth_gasPrice" })
         const gasPriceInGwei = Number.parseInt(gasPrice, 16) / Math.pow(10, 9)
@@ -218,7 +220,7 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Update gas price periodically
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && typeof window !== "undefined") {
       const interval = setInterval(getGasPrice, 30000) // Every 30 seconds
       return () => clearInterval(interval)
     }

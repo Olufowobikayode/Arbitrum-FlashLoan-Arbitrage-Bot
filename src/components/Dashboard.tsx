@@ -1,121 +1,52 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Activity,
   DollarSign,
   TrendingUp,
   Zap,
   Play,
-  Square,
+  Pause,
+  RefreshCw,
   AlertTriangle,
   Target,
   Clock,
-  BarChart3,
 } from "lucide-react"
 import { useBot } from "@/src/contexts/BotContext"
 import { useWeb3 } from "@/src/contexts/Web3Context"
-import toast from "react-hot-toast"
 
 export default function Dashboard() {
-  const {
-    botState,
-    opportunities,
-    isScanning,
-    autoExecutionStats,
-    startBot,
-    stopBot,
-    emergencyStop,
-    scanForOpportunities,
-  } = useBot()
+  const { botState, opportunities, startBot, stopBot, executeArbitrage } = useBot()
+  const { isConnected, balance } = useWeb3()
+  const [isExecuting, setIsExecuting] = useState<string | null>(null)
 
-  const { isConnected, account, balance } = useWeb3()
-  const [recentActivity, setRecentActivity] = useState<any[]>([])
-
-  useEffect(() => {
-    // Generate mock recent activity
-    const mockActivity = [
-      {
-        id: 1,
-        type: "trade",
-        description: "Executed WETH/USDC arbitrage",
-        profit: 125.5,
-        timestamp: new Date(Date.now() - 1000 * 60 * 5),
-        status: "success",
-      },
-      {
-        id: 2,
-        type: "opportunity",
-        description: "New WBTC/USDT opportunity detected",
-        profit: 89.25,
-        timestamp: new Date(Date.now() - 1000 * 60 * 15),
-        status: "pending",
-      },
-      {
-        id: 3,
-        type: "scan",
-        description: "Completed market scan",
-        profit: 0,
-        timestamp: new Date(Date.now() - 1000 * 60 * 30),
-        status: "info",
-      },
-    ]
-    setRecentActivity(mockActivity)
-  }, [])
-
-  const handleStartBot = async () => {
-    try {
-      await startBot()
-      toast.success("Bot started successfully!")
-    } catch (error: any) {
-      toast.error(error.message || "Failed to start bot")
+  const handleBotToggle = () => {
+    if (botState.running) {
+      stopBot()
+    } else {
+      startBot()
     }
   }
 
-  const handleStopBot = () => {
-    stopBot()
-    toast.success("Bot stopped")
-  }
-
-  const handleEmergencyStop = () => {
-    emergencyStop()
-    toast.error("Emergency stop activated!")
-  }
-
-  const handleScanNow = async () => {
+  const handleExecuteOpportunity = async (opportunity: any) => {
+    setIsExecuting(opportunity.id)
     try {
-      await scanForOpportunities()
-      toast.success("Manual scan completed")
+      await executeArbitrage(opportunity)
     } catch (error) {
-      toast.error("Scan failed")
+      console.error("Failed to execute opportunity:", error)
+    } finally {
+      setIsExecuting(null)
     }
   }
 
-  const formatTimeAgo = (date: Date) => {
-    const now = new Date()
-    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60))
-
-    if (diffInMinutes < 1) return "Just now"
-    if (diffInMinutes < 60) return `${diffInMinutes}m ago`
-    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`
-    return `${Math.floor(diffInMinutes / 1440)}d ago`
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "success":
-        return "text-green-500"
-      case "error":
-        return "text-red-500"
-      case "pending":
-        return "text-yellow-500"
-      default:
-        return "text-blue-500"
-    }
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString()
   }
 
   return (
@@ -124,70 +55,65 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">Monitor your arbitrage bot performance and manage operations</p>
+          <p className="text-muted-foreground">Monitor your arbitrage bot performance</p>
         </div>
-
-        <div className="flex items-center gap-2">
-          {!isConnected ? (
-            <Badge variant="destructive">Wallet Not Connected</Badge>
-          ) : (
-            <Badge variant="default">Connected</Badge>
-          )}
-
-          <Badge variant={botState.running ? "default" : "secondary"}>{botState.running ? "Running" : "Stopped"}</Badge>
+        <div className="flex items-center gap-4">
+          <Badge variant={botState.running ? "default" : "secondary"} className="px-3 py-1">
+            <div
+              className={`w-2 h-2 rounded-full mr-2 ${botState.running ? "bg-green-500 animate-pulse" : "bg-gray-400"}`}
+            />
+            {botState.running ? "Running" : "Stopped"}
+          </Badge>
+          <Button onClick={handleBotToggle} disabled={!isConnected}>
+            {botState.running ? (
+              <>
+                <Pause className="w-4 h-4 mr-2" />
+                Stop Bot
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Start Bot
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
-            Quick Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {!botState.running ? (
-              <Button onClick={handleStartBot} disabled={!isConnected} className="flex items-center gap-2">
-                <Play className="w-4 h-4" />
-                Start Bot
-              </Button>
-            ) : (
-              <Button onClick={handleStopBot} variant="outline" className="flex items-center gap-2 bg-transparent">
-                <Square className="w-4 h-4" />
-                Stop Bot
-              </Button>
-            )}
+      {/* Connection Warning */}
+      {!isConnected && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-yellow-800">
+              <AlertTriangle className="w-5 h-5" />
+              <span className="font-medium">Wallet not connected</span>
+            </div>
+            <p className="text-yellow-700 mt-1">Connect your wallet to start trading</p>
+          </CardContent>
+        </Card>
+      )}
 
-            <Button onClick={handleEmergencyStop} variant="destructive" className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" />
-              Emergency Stop
-            </Button>
-
-            <Button
-              onClick={handleScanNow}
-              disabled={isScanning}
-              variant="outline"
-              className="flex items-center gap-2 bg-transparent"
-            >
-              <Target className="w-4 h-4" />
-              {isScanning ? "Scanning..." : "Scan Now"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">${botState.totalProfit.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">+12.5% from last week</p>
+            <div className="text-2xl font-bold text-green-600">${botState.totalProfit.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">+12.5% from last month</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Trades</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{botState.totalTrades}</div>
+            <p className="text-xs text-muted-foreground">+3 from yesterday</p>
           </CardContent>
         </Card>
 
@@ -204,63 +130,89 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Opportunities</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Gas Used</CardTitle>
+            <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{opportunities.length}</div>
-            <p className="text-xs text-muted-foreground">{isScanning ? "Scanning..." : "Last scan: 2m ago"}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Trades</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{botState.totalTrades}</div>
-            <p className="text-xs text-muted-foreground">{autoExecutionStats.successfulTrades} successful</p>
+            <div className="text-2xl font-bold">{botState.gasUsed.toFixed(3)} ETH</div>
+            <p className="text-xs text-muted-foreground">Current balance: {balance} ETH</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Opportunities */}
-        <div className="lg:col-span-2">
+      <Tabs defaultValue="opportunities" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="opportunities">Live Opportunities</TabsTrigger>
+          <TabsTrigger value="activity">Recent Activity</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="opportunities" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Target className="w-5 h-5" />
-                Current Opportunities
+                Live Arbitrage Opportunities
               </CardTitle>
-              <CardDescription>Live arbitrage opportunities detected by the bot</CardDescription>
+              <CardDescription>
+                {opportunities.length} opportunities found • Last updated: {formatTime(botState.lastUpdate)}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {opportunities.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <Target className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No opportunities found</p>
-                  <p className="text-sm">The bot will automatically scan for new opportunities</p>
+                  {botState.running ? (
+                    <>
+                      <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
+                      Scanning for opportunities...
+                    </>
+                  ) : (
+                    <>
+                      <Target className="w-8 h-8 mx-auto mb-2" />
+                      Start the bot to scan for opportunities
+                    </>
+                  )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {opportunities.slice(0, 5).map((opportunity) => (
-                    <div key={opportunity.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="space-y-4">
+                  {opportunities.map((opportunity) => (
+                    <div
+                      key={opportunity.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
+                    >
                       <div className="flex-1">
-                        <div className="font-medium">
-                          {opportunity.tokenA}/{opportunity.tokenB}
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">
+                            {opportunity.tokenA}/{opportunity.tokenB}
+                          </span>
+                          <Badge variant="outline">{opportunity.exchangeA}</Badge>
+                          <span className="text-muted-foreground">→</span>
+                          <Badge variant="outline">{opportunity.exchangeB}</Badge>
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {opportunity.exchangeA} → {opportunity.exchangeB}
+                          Profit: ${opportunity.profitUSD.toFixed(2)} ({opportunity.profitPercent.toFixed(2)}%) • Gas:
+                          {opportunity.gasEstimate.toFixed(4)} ETH
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-medium text-green-500">+${opportunity.profitUsd.toFixed(2)}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {(opportunity.confidence * 100).toFixed(0)}% confidence
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={opportunity.profitPercent > 0.1 ? "default" : "secondary"}>
+                          {opportunity.profitPercent.toFixed(2)}%
+                        </Badge>
+                        <Button
+                          size="sm"
+                          onClick={() => handleExecuteOpportunity(opportunity)}
+                          disabled={isExecuting === opportunity.id || !isConnected}
+                        >
+                          {isExecuting === opportunity.id ? (
+                            <>
+                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              Executing...
+                            </>
+                          ) : (
+                            "Execute"
+                          )}
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -268,74 +220,95 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
+        </TabsContent>
 
-        {/* Recent Activity */}
-        <div>
+        <TabsContent value="activity" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="w-5 h-5" />
                 Recent Activity
               </CardTitle>
+              <CardDescription>Your latest arbitrage trades and bot actions</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-3">
-                    <div className={`w-2 h-2 rounded-full mt-2 ${getStatusColor(activity.status)}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{activity.description}</p>
-                      {activity.profit > 0 && <p className="text-sm text-green-500">+${activity.profit.toFixed(2)}</p>}
-                      <p className="text-xs text-muted-foreground">{formatTimeAgo(activity.timestamp)}</p>
-                    </div>
+              <div className="space-y-4">
+                {botState.totalTrades === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Activity className="w-8 h-8 mx-auto mb-2" />
+                    No trades executed yet
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-3">
+                    {Array.from({ length: Math.min(5, botState.totalTrades) }, (_, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 border rounded">
+                        <div>
+                          <div className="font-medium">Arbitrage Trade #{botState.totalTrades - i}</div>
+                          <div className="text-sm text-muted-foreground">WETH/USDC • Uniswap → SushiSwap</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium text-green-600">+$12.45</div>
+                          <div className="text-xs text-muted-foreground">2 min ago</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* Wallet Info */}
-          {isConnected && (
-            <Card className="mt-4">
+        <TabsContent value="analytics" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Wallet Info</CardTitle>
+                <CardTitle>Performance Metrics</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Address:</span>
-                    <span className="font-mono">
-                      {account?.slice(0, 6)}...{account?.slice(-4)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Balance:</span>
-                    <span>{balance} ETH</span>
-                  </div>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span>Average Profit per Trade</span>
+                  <span className="font-medium">
+                    ${botState.totalTrades > 0 ? (botState.totalProfit / botState.totalTrades).toFixed(2) : "0.00"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Total Gas Spent</span>
+                  <span className="font-medium">{botState.gasUsed.toFixed(4)} ETH</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Net Profit (after gas)</span>
+                  <span className="font-medium text-green-600">
+                    ${(botState.totalProfit - botState.gasUsed * 2500).toFixed(2)}
+                  </span>
                 </div>
               </CardContent>
             </Card>
-          )}
-        </div>
-      </div>
 
-      {/* Performance Chart Placeholder */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Performance Overview</CardTitle>
-          <CardDescription>Bot performance metrics over time</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-64 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Performance chart will be displayed here</p>
-              <p className="text-sm">Historical data and analytics</p>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Bot Status</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span>Status</span>
+                  <Badge variant={botState.running ? "default" : "secondary"}>
+                    {botState.running ? "Running" : "Stopped"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span>Last Update</span>
+                  <span className="font-medium">{formatTime(botState.lastUpdate)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Active Opportunities</span>
+                  <span className="font-medium">{opportunities.length}</span>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
