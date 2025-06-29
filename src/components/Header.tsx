@@ -1,133 +1,147 @@
 "use client"
 
-import { useState } from "react"
+import type React from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Wallet, Settings, LogOut, ChevronDown, Activity, DollarSign, TrendingUp, Zap } from "lucide-react"
-import { useWeb3 } from "@/src/contexts/Web3Context"
-import { useBot } from "@/src/contexts/BotContext"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Wallet, ChevronDown, LogOut, Settings, User } from "lucide-react"
+import { useWeb3 } from "../contexts/Web3Context"
+import { useBot } from "../contexts/BotContext"
 
-export default function Header() {
-  const { account, isConnected, balance, connect, disconnect, chainId } = useWeb3()
-  const { botState, startBot, stopBot } = useBot()
-  const [isToggling, setIsToggling] = useState(false)
+interface HeaderProps {
+  activeSection: string
+}
 
-  const handleBotToggle = async () => {
-    setIsToggling(true)
-    try {
-      if (botState.running) {
-        stopBot()
-      } else {
-        await startBot()
-      }
-    } catch (error) {
-      console.error("Failed to toggle bot:", error)
-    } finally {
-      setIsToggling(false)
-    }
-  }
+const Header: React.FC<HeaderProps> = ({ activeSection }) => {
+  const { account, isConnected, isConnecting, chainId, balance, connectWallet, disconnectWallet } = useWeb3()
+  const { isRunning, isEmergencyStop } = useBot()
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`
   }
 
-  const getNetworkName = (chainId: number | null) => {
+  const getChainName = (chainId: number) => {
     switch (chainId) {
       case 1:
         return "Ethereum"
-      case 42161:
-        return "Arbitrum"
       case 137:
         return "Polygon"
+      case 56:
+        return "BSC"
+      case 42161:
+        return "Arbitrum"
+      case 10:
+        return "Optimism"
       default:
         return "Unknown"
     }
   }
 
+  const getSectionTitle = (section: string) => {
+    const titles: { [key: string]: string } = {
+      dashboard: "Dashboard",
+      trading: "Trading Panel",
+      opportunities: "Opportunities",
+      portfolio: "Portfolio",
+      strategy: "Strategy Builder",
+      monitoring: "Monitoring",
+      notifications: "Notifications",
+      security: "Security",
+      "mev-protection": "MEV Protection",
+      "gas-optimization": "Gas Optimization",
+      flashbots: "Flashbots",
+      analytics: "Analytics",
+      configuration: "Configuration",
+    }
+    return titles[section] || "Dashboard"
+  }
+
   return (
-    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-16 items-center justify-between px-6">
-        {/* Left side - Bot status and stats */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${botState.running ? "bg-green-500" : "bg-gray-400"}`} />
-            <span className="text-sm font-medium">Bot {botState.running ? "Active" : "Inactive"}</span>
-          </div>
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-6">
+      {/* Left side - Section title and status */}
+      <div className="flex items-center gap-4">
+        <h1 className="text-xl font-semibold">{getSectionTitle(activeSection)}</h1>
 
-          {botState.running && (
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-1">
-                <DollarSign className="w-4 h-4 text-green-600" />
-                <span className="font-medium">${botState.totalProfit.toFixed(2)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <TrendingUp className="w-4 h-4 text-blue-600" />
-                <span className="font-medium">{botState.successRate.toFixed(1)}%</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Activity className="w-4 h-4 text-purple-600" />
-                <span className="font-medium">{botState.totalTrades}</span>
-              </div>
-            </div>
-          )}
+        {/* Bot Status */}
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={isEmergencyStop ? "destructive" : isRunning ? "default" : "secondary"}
+            className="flex items-center gap-1"
+          >
+            <div
+              className={`w-2 h-2 rounded-full ${
+                isEmergencyStop ? "bg-red-500" : isRunning ? "bg-green-500 animate-pulse" : "bg-gray-400"
+              }`}
+            />
+            {isEmergencyStop ? "Emergency Stop" : isRunning ? "Running" : "Stopped"}
+          </Badge>
         </div>
+      </div>
 
-        {/* Right side - Controls and wallet */}
-        <div className="flex items-center gap-4">
-          {/* Bot Control */}
-          {isConnected && (
-            <Button
-              onClick={handleBotToggle}
-              disabled={isToggling}
-              variant={botState.running ? "destructive" : "default"}
-              size="sm"
-            >
-              {isToggling ? <Settings className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
-              {botState.running ? "Stop Bot" : "Start Bot"}
-            </Button>
-          )}
+      {/* Right side - Wallet connection */}
+      <div className="flex items-center gap-4">
+        {isConnected ? (
+          <div className="flex items-center gap-3">
+            {/* Chain indicator */}
+            {chainId && (
+              <Badge variant="outline" className="text-xs">
+                {getChainName(chainId)}
+              </Badge>
+            )}
 
-          {/* Wallet Connection */}
-          {isConnected ? (
+            {/* Balance */}
+            <div className="text-sm text-muted-foreground">{balance} ETH</div>
+
+            {/* Account dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2 bg-transparent">
-                  <Wallet className="w-4 h-4" />
-                  <div className="flex flex-col items-start">
-                    <span className="text-xs">{formatAddress(account!)}</span>
-                    <span className="text-xs text-muted-foreground">{balance} ETH</span>
-                  </div>
+                <Button variant="outline" className="flex items-center gap-2 bg-transparent">
+                  <Avatar className="w-6 h-6">
+                    <AvatarImage src="/placeholder-user.jpg" />
+                    <AvatarFallback>
+                      <User className="w-3 h-3" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="hidden sm:inline">{formatAddress(account!)}</span>
                   <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <div className="p-2">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium">{formatAddress(account!)}</p>
-                    <p className="text-xs text-muted-foreground">{getNetworkName(chainId)} Network</p>
-                    <p className="text-xs text-muted-foreground">Balance: {balance} ETH</p>
-                  </div>
-                </div>
-                <DropdownMenuItem onClick={disconnect}>
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Disconnect
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={disconnectWallet}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Disconnect</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
-            <Button onClick={connect} className="gap-2">
-              <Wallet className="w-4 h-4" />
-              Connect Wallet
-            </Button>
-          )}
-
-          {/* Network Badge */}
-          {isConnected && chainId && (
-            <Badge variant={chainId === 42161 ? "default" : "destructive"}>{getNetworkName(chainId)}</Badge>
-          )}
-        </div>
+          </div>
+        ) : (
+          <Button onClick={connectWallet} disabled={isConnecting} className="flex items-center gap-2">
+            <Wallet className="w-4 h-4" />
+            {isConnecting ? "Connecting..." : "Connect Wallet"}
+          </Button>
+        )}
       </div>
     </header>
   )
 }
+
+export default Header

@@ -3,6 +3,10 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { useWeb3 } from "./Web3Context"
+import { WebSocketService } from "../services/WebSocketService"
+import { RealTimeArbitrageScanner } from "../services/RealTimeArbitrageScanner"
+import { ArbitrageExecutionService } from "../services/ArbitrageExecutionService"
+import { TelegramNotificationService } from "../services/TelegramNotificationService"
 
 export interface BotState {
   running: boolean
@@ -17,11 +21,6 @@ export interface BotState {
   riskLevel: "low" | "medium" | "high"
   maxSlippage: number
   minProfitThreshold: number
-  successfulTrades: number
-  todayProfit: number
-  uptime: string
-  averageProfit: number
-  autoExecuteEnabled: boolean
 }
 
 export interface ArbitrageOpportunity {
@@ -39,8 +38,6 @@ export interface ArbitrageOpportunity {
   timestamp: number
   liquidity: number
   volume24h: number
-  profitUSD: number
-  profitPercent: number
 }
 
 export interface AutoExecutionStats {
@@ -58,8 +55,7 @@ interface BotContextType {
   opportunities: ArbitrageOpportunity[]
   isScanning: boolean
   autoExecutionStats: AutoExecutionStats
-  recentTrades: any[]
-  stats: BotState
+  telegramService: any
   startBot: () => Promise<void>
   stopBot: () => void
   emergencyStop: () => void
@@ -69,7 +65,6 @@ interface BotContextType {
   scanForOpportunities: () => Promise<void>
   clearOpportunities: () => void
   resetStats: () => void
-  updateBotState: (state: Partial<BotState>) => void
 }
 
 const BotContext = createContext<BotContextType | undefined>(undefined)
@@ -90,11 +85,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     riskLevel: "medium",
     maxSlippage: 0.5,
     minProfitThreshold: 10,
-    successfulTrades: 0,
-    todayProfit: 0,
-    uptime: "0h 0m",
-    averageProfit: 0,
-    autoExecuteEnabled: false,
   })
 
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([])
@@ -108,117 +98,101 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gasSpent: 0,
     lastExecution: 0,
   })
-  const [recentTrades, setRecentTrades] = useState<any[]>([])
-  const [isClient, setIsClient] = useState(false)
 
-  // Set client flag after mount
+  // Services
+  const [webSocketService] = useState(() => WebSocketService.getInstance())
+  const [scanner] = useState(() => new RealTimeArbitrageScanner())
+  const [executionService] = useState(() => new ArbitrageExecutionService())
+  const [telegramService] = useState(() => new TelegramNotificationService())
+
+  // Load saved state
   useEffect(() => {
-    setIsClient(true)
-  }, [])
-
-  // Load saved state from localStorage (client-side only)
-  useEffect(() => {
-    if (isClient) {
-      const savedState = localStorage.getItem("botState")
-      if (savedState) {
-        try {
-          const parsed = JSON.parse(savedState)
-          setBotState((prev) => ({ ...prev, ...parsed, running: false, status: "idle" }))
-        } catch (error) {
-          console.error("Failed to load bot state:", error)
-        }
-      }
-
-      const savedStats = localStorage.getItem("autoExecutionStats")
-      if (savedStats) {
-        try {
-          setAutoExecutionStats(JSON.parse(savedStats))
-        } catch (error) {
-          console.error("Failed to load execution stats:", error)
-        }
+    const savedState = localStorage.getItem("botState")
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState)
+        setBotState((prev) => ({ ...prev, ...parsed, running: false, status: "idle" }))
+      } catch (error) {
+        console.error("Failed to load bot state:", error)
       }
     }
-  }, [isClient])
+
+    const savedStats = localStorage.getItem("autoExecutionStats")
+    if (savedStats) {
+      try {
+        setAutoExecutionStats(JSON.parse(savedStats))
+      } catch (error) {
+        console.error("Failed to load execution stats:", error)
+      }
+    }
+  }, [])
 
   // Save state changes
   useEffect(() => {
-    if (isClient) {
-      localStorage.setItem("botState", JSON.stringify(botState))
-    }
-  }, [botState, isClient])
+    localStorage.setItem("botState", JSON.stringify(botState))
+  }, [botState])
 
   useEffect(() => {
-    if (isClient) {
-      localStorage.setItem("autoExecutionStats", JSON.stringify(autoExecutionStats))
-    }
-  }, [autoExecutionStats, isClient])
+    localStorage.setItem("autoExecutionStats", JSON.stringify(autoExecutionStats))
+  }, [autoExecutionStats])
 
-  // Simulate opportunity scanning when bot is running
+  // WebSocket message handler
   useEffect(() => {
-    if (botState.running) {
-      const interval = setInterval(() => {
-        generateMockOpportunities()
-        setBotState((prev) => ({ ...prev, lastUpdate: Date.now() }))
-      }, 5000) // Update every 5 seconds
+    const unsubscribePriceUpdate = webSocketService.subscribe("price_update", (message) => {
+      if (botState.running && isScanning) {
+        // Trigger opportunity scan on price updates
+        scanForOpportunities()
+      }
+    })
 
-      return () => clearInterval(interval)
-    } else {
-      setOpportunities([])
+    const unsubscribeDexUpdate = webSocketService.subscribe("dex_update", (message) => {
+      if (botState.running && isScanning) {
+        // Process DEX updates for arbitrage opportunities
+        processNewOpportunity(message.data)
+      }
+    })
+
+    return () => {
+      unsubscribePriceUpdate()
+      unsubscribeDexUpdate()
     }
-  }, [botState.running])
+  }, [botState.running, isScanning])
 
-  const generateMockOpportunities = useCallback(() => {
-    const mockOpportunities: ArbitrageOpportunity[] = []
-    const numOpportunities = Math.floor(Math.random() * 3) + 1
+  const processNewOpportunity = useCallback(
+    (data: any) => {
+      // Mock opportunity generation based on real data
+      const opportunity: ArbitrageOpportunity = {
+        id: `opp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        tokenA: data.baseToken?.symbol || "WETH",
+        tokenB: data.quoteToken?.symbol || "USDC",
+        exchangeA: data.dexId || "Uniswap V3",
+        exchangeB: "SushiSwap",
+        priceA: data.priceUsd || 2450 + Math.random() * 10,
+        priceB: data.priceUsd ? data.priceUsd * (1 + (Math.random() - 0.5) * 0.02) : 2455 + Math.random() * 10,
+        profitUsd: 15 + Math.random() * 50,
+        profitPercentage: 0.5 + Math.random() * 2,
+        gasEstimate: 0.002 + Math.random() * 0.003,
+        confidence: 0.7 + Math.random() * 0.3,
+        timestamp: Date.now(),
+        liquidity: data.liquidity || 100000 + Math.random() * 500000,
+        volume24h: data.volume24h || 50000 + Math.random() * 200000,
+      }
 
-    const tokens = [
-      { symbol: "WETH", price: 2450 + Math.random() * 100 },
-      { symbol: "WBTC", price: 43000 + Math.random() * 2000 },
-      { symbol: "USDC", price: 1 },
-      { symbol: "ARB", price: 1.2 + Math.random() * 0.3 },
-    ]
+      // Only add profitable opportunities above threshold
+      if (opportunity.profitUsd >= botState.minProfitThreshold) {
+        setOpportunities((prev) => {
+          const updated = [opportunity, ...prev.slice(0, 19)] // Keep last 20
+          return updated.sort((a, b) => b.profitUsd - a.profitUsd)
+        })
 
-    const exchanges = ["Uniswap V3", "SushiSwap", "Balancer", "Curve"]
-
-    for (let i = 0; i < numOpportunities; i++) {
-      const tokenA = tokens[Math.floor(Math.random() * tokens.length)]
-      const tokenB = tokens[Math.floor(Math.random() * tokens.length)]
-
-      if (tokenA.symbol !== tokenB.symbol) {
-        const profitUsd = 5 + Math.random() * 45
-
-        if (profitUsd >= botState.minProfitThreshold) {
-          const opportunity: ArbitrageOpportunity = {
-            id: `opp_${Date.now()}_${i}`,
-            tokenA: tokenA.symbol,
-            tokenB: tokenB.symbol,
-            exchangeA: exchanges[Math.floor(Math.random() * exchanges.length)],
-            exchangeB: exchanges[Math.floor(Math.random() * exchanges.length)],
-            priceA: tokenA.price,
-            priceB: tokenA.price * (1 + (Math.random() - 0.5) * 0.03),
-            profitUsd,
-            profitPercentage: (profitUsd / (tokenA.price * 100)) * 100,
-            gasEstimate: 0.001 + Math.random() * 0.004,
-            confidence: 0.6 + Math.random() * 0.4,
-            timestamp: Date.now(),
-            liquidity: 50000 + Math.random() * 500000,
-            volume24h: 25000 + Math.random() * 200000,
-            profitUSD: profitUsd,
-            profitPercent: (profitUsd / (tokenA.price * 100)) * 100,
-          }
-
-          mockOpportunities.push(opportunity)
+        // Auto-execute if enabled and conditions are met
+        if (botState.autoTrade && opportunity.confidence > 0.8 && opportunity.profitUsd > 20) {
+          executeArbitrage(opportunity)
         }
       }
-    }
-
-    if (mockOpportunities.length > 0) {
-      setOpportunities((prev) => {
-        const combined = [...mockOpportunities, ...prev]
-        return combined.sort((a, b) => b.profitUsd - a.profitUsd).slice(0, 20)
-      })
-    }
-  }, [botState.minProfitThreshold])
+    },
+    [botState.minProfitThreshold, botState.autoTrade],
+  )
 
   const startBot = useCallback(async () => {
     if (!isConnected || !account) {
@@ -228,6 +202,9 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       setBotState((prev) => ({ ...prev, running: true, status: "scanning" }))
       setIsScanning(true)
+
+      // Start WebSocket connections
+      await webSocketService.startConnections()
 
       // Start scanning
       await scanForOpportunities()
@@ -239,13 +216,14 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsScanning(false)
       throw error
     }
-  }, [isConnected, account])
+  }, [isConnected, account, webSocketService])
 
   const stopBot = useCallback(() => {
     setBotState((prev) => ({ ...prev, running: false, status: "stopped" }))
     setIsScanning(false)
+    webSocketService.stopConnections()
     console.log("🤖 Bot stopped")
-  }, [])
+  }, [webSocketService])
 
   const emergencyStop = useCallback(() => {
     setBotState((prev) => ({
@@ -256,8 +234,9 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }))
     setIsScanning(false)
     setOpportunities([])
+    webSocketService.stopConnections()
     console.log("🚨 Emergency stop activated")
-  }, [])
+  }, [webSocketService])
 
   const toggleAutoTrade = useCallback(() => {
     setBotState((prev) => ({ ...prev, autoTrade: !prev.autoTrade }))
@@ -290,10 +269,7 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             totalProfit: prev.totalProfit + actualProfit,
             totalTrades: prev.totalTrades + 1,
             gasUsed: prev.gasUsed + gasUsed,
-            successfulTrades: prev.successfulTrades + 1,
-            successRate: ((prev.successfulTrades + 1) / (prev.totalTrades + 1)) * 100,
-            averageProfit: (prev.totalProfit + actualProfit) / (prev.totalTrades + 1),
-            todayProfit: prev.todayProfit + actualProfit,
+            successRate: (prev.totalTrades * prev.successRate + 100) / (prev.totalTrades + 1),
             status: "scanning",
           }))
 
@@ -307,24 +283,20 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             lastExecution: Date.now(),
           }))
 
-          // Add to recent trades
-          setRecentTrades((prev) => [
-            {
-              id: Date.now().toString(),
-              pair: `${opportunity.tokenA}/${opportunity.tokenB}`,
-              profit: actualProfit,
-              timestamp: new Date().toISOString(),
-              status: "success",
-            },
-            ...prev.slice(0, 9),
-          ])
+          // Send notification
+          await telegramService.sendTradeNotification({
+            type: "success",
+            opportunity,
+            actualProfit,
+            gasUsed,
+          })
 
           console.log(`✅ Arbitrage executed successfully: $${actualProfit.toFixed(2)} profit`)
         } else {
           setBotState((prev) => ({
             ...prev,
             totalTrades: prev.totalTrades + 1,
-            successRate: (prev.successfulTrades / (prev.totalTrades + 1)) * 100,
+            successRate: (prev.totalTrades * prev.successRate + 0) / (prev.totalTrades + 1),
             status: "scanning",
           }))
 
@@ -346,7 +318,7 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw error
       }
     },
-    [isConnected, account],
+    [isConnected, account, telegramService],
   )
 
   const scanForOpportunities = useCallback(async () => {
@@ -358,13 +330,58 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Simulate scanning delay
       await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      generateMockOpportunities()
+      // Generate mock opportunities
+      const mockOpportunities: ArbitrageOpportunity[] = []
+      const numOpportunities = Math.floor(Math.random() * 3) + 1
+
+      for (let i = 0; i < numOpportunities; i++) {
+        const tokens = [
+          { symbol: "WETH", price: 2450 + Math.random() * 100 },
+          { symbol: "WBTC", price: 43000 + Math.random() * 2000 },
+          { symbol: "USDC", price: 1 },
+          { symbol: "ARB", price: 1.2 + Math.random() * 0.3 },
+        ]
+
+        const exchanges = ["Uniswap V3", "SushiSwap", "Balancer", "Curve"]
+        const tokenA = tokens[Math.floor(Math.random() * tokens.length)]
+        const tokenB = tokens[Math.floor(Math.random() * tokens.length)]
+
+        if (tokenA.symbol !== tokenB.symbol) {
+          const profitUsd = 5 + Math.random() * 45
+
+          if (profitUsd >= botState.minProfitThreshold) {
+            mockOpportunities.push({
+              id: `opp_${Date.now()}_${i}`,
+              tokenA: tokenA.symbol,
+              tokenB: tokenB.symbol,
+              exchangeA: exchanges[Math.floor(Math.random() * exchanges.length)],
+              exchangeB: exchanges[Math.floor(Math.random() * exchanges.length)],
+              priceA: tokenA.price,
+              priceB: tokenA.price * (1 + (Math.random() - 0.5) * 0.03),
+              profitUsd,
+              profitPercentage: (profitUsd / (tokenA.price * 100)) * 100,
+              gasEstimate: 0.001 + Math.random() * 0.004,
+              confidence: 0.6 + Math.random() * 0.4,
+              timestamp: Date.now(),
+              liquidity: 50000 + Math.random() * 500000,
+              volume24h: 25000 + Math.random() * 200000,
+            })
+          }
+        }
+      }
+
+      if (mockOpportunities.length > 0) {
+        setOpportunities((prev) => {
+          const combined = [...mockOpportunities, ...prev]
+          return combined.sort((a, b) => b.profitUsd - a.profitUsd).slice(0, 20)
+        })
+      }
     } catch (error) {
       console.error("Scan failed:", error)
     } finally {
       setIsScanning(false)
     }
-  }, [botState.running, generateMockOpportunities])
+  }, [botState.running, botState.minProfitThreshold])
 
   const clearOpportunities = useCallback(() => {
     setOpportunities([])
@@ -377,9 +394,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalTrades: 0,
       successRate: 0,
       gasUsed: 0,
-      successfulTrades: 0,
-      todayProfit: 0,
-      averageProfit: 0,
     }))
     setAutoExecutionStats({
       totalExecuted: 0,
@@ -390,11 +404,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gasSpent: 0,
       lastExecution: 0,
     })
-    setRecentTrades([])
-  }, [])
-
-  const updateBotState = useCallback((state: Partial<BotState>) => {
-    setBotState((prev) => ({ ...prev, ...state, lastUpdate: Date.now() }))
   }, [])
 
   const value: BotContextType = {
@@ -402,8 +411,7 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     opportunities,
     isScanning,
     autoExecutionStats,
-    recentTrades,
-    stats: botState,
+    telegramService,
     startBot,
     stopBot,
     emergencyStop,
@@ -413,7 +421,6 @@ export const BotProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     scanForOpportunities,
     clearOpportunities,
     resetStats,
-    updateBotState,
   }
 
   return <BotContext.Provider value={value}>{children}</BotContext.Provider>

@@ -1,549 +1,540 @@
 "use client"
 
+import type React from "react"
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Target, Settings, Play, Save, Copy, Trash2, Plus, AlertTriangle, CheckCircle } from "lucide-react"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Settings, Play, Save, Copy, Trash2, Target, TrendingUp, Shield, Zap, AlertTriangle } from "lucide-react"
+import toast from "react-hot-toast"
 
 interface Strategy {
   id: string
   name: string
   description: string
-  minProfitThreshold: number
+  type: "arbitrage" | "dca" | "grid" | "custom"
+  status: "active" | "inactive" | "draft"
+  profitTarget: number
+  stopLoss: number
   maxSlippage: number
   gasLimit: number
-  enabledExchanges: string[]
-  enabledTokens: string[]
+  minProfitThreshold: number
+  tokens: string[]
+  dexes: string[]
   riskLevel: "low" | "medium" | "high"
-  autoExecute: boolean
-  maxTradeSize: number
-  isActive: boolean
+  createdAt: string
+  lastModified: string
 }
 
-const defaultStrategy: Omit<Strategy, "id"> = {
-  name: "",
-  description: "",
-  minProfitThreshold: 10,
-  maxSlippage: 0.5,
-  gasLimit: 500000,
-  enabledExchanges: ["uniswap", "sushiswap"],
-  enabledTokens: ["WETH", "USDC"],
-  riskLevel: "medium",
-  autoExecute: false,
-  maxTradeSize: 1000,
-  isActive: false,
-}
-
-export default function StrategyBuilder() {
+const StrategyBuilder: React.FC = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([
     {
       id: "1",
-      name: "Conservative Arbitrage",
-      description: "Low-risk strategy focusing on stable pairs",
-      minProfitThreshold: 15,
-      maxSlippage: 0.3,
-      gasLimit: 400000,
-      enabledExchanges: ["uniswap", "sushiswap"],
-      enabledTokens: ["WETH", "USDC", "USDT"],
-      riskLevel: "low",
-      autoExecute: true,
-      maxTradeSize: 500,
-      isActive: true,
-    },
-    {
-      id: "2",
-      name: "Aggressive Trading",
-      description: "High-risk, high-reward strategy",
-      minProfitThreshold: 5,
-      maxSlippage: 1.0,
-      gasLimit: 600000,
-      enabledExchanges: ["uniswap", "sushiswap", "balancer"],
-      enabledTokens: ["WETH", "WBTC", "ARB"],
-      riskLevel: "high",
-      autoExecute: false,
-      maxTradeSize: 2000,
-      isActive: false,
+      name: "ETH-USDC Arbitrage",
+      description: "Basic arbitrage strategy for ETH/USDC pair across major DEXes",
+      type: "arbitrage",
+      status: "active",
+      profitTarget: 2.5,
+      stopLoss: 1.0,
+      maxSlippage: 0.5,
+      gasLimit: 300000,
+      minProfitThreshold: 50,
+      tokens: ["ETH", "USDC"],
+      dexes: ["Uniswap V3", "SushiSwap"],
+      riskLevel: "medium",
+      createdAt: "2024-01-15T10:30:00Z",
+      lastModified: "2024-01-20T14:45:00Z",
     },
   ])
 
-  const [currentStrategy, setCurrentStrategy] = useState<Strategy | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editingStrategy, setEditingStrategy] = useState<Omit<Strategy, "id">>(defaultStrategy)
+  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [newStrategy, setNewStrategy] = useState<Partial<Strategy>>({
+    name: "",
+    description: "",
+    type: "arbitrage",
+    profitTarget: 2.0,
+    stopLoss: 1.0,
+    maxSlippage: 0.5,
+    gasLimit: 250000,
+    minProfitThreshold: 25,
+    tokens: [],
+    dexes: [],
+    riskLevel: "medium",
+  })
 
   const handleCreateStrategy = () => {
-    setEditingStrategy(defaultStrategy)
-    setIsEditing(true)
-    setCurrentStrategy(null)
-  }
-
-  const handleEditStrategy = (strategy: Strategy) => {
-    setEditingStrategy(strategy)
-    setIsEditing(true)
-    setCurrentStrategy(strategy)
+    console.log("Create strategy clicked")
+    setIsCreating(true)
+    setSelectedStrategy(null)
   }
 
   const handleSaveStrategy = () => {
-    if (currentStrategy) {
-      // Update existing strategy
-      setStrategies((prev) =>
-        prev.map((s) => (s.id === currentStrategy.id ? { ...editingStrategy, id: currentStrategy.id } : s)),
-      )
-    } else {
-      // Create new strategy
-      const newStrategy: Strategy = {
-        ...editingStrategy,
-        id: Date.now().toString(),
-      }
-      setStrategies((prev) => [...prev, newStrategy])
+    console.log("Save strategy clicked", newStrategy)
+
+    if (!newStrategy.name || !newStrategy.description) {
+      toast.error("Please fill in all required fields")
+      return
     }
-    setIsEditing(false)
-    setCurrentStrategy(null)
+
+    const strategy: Strategy = {
+      id: Date.now().toString(),
+      name: newStrategy.name,
+      description: newStrategy.description,
+      type: newStrategy.type || "arbitrage",
+      status: "draft",
+      profitTarget: newStrategy.profitTarget || 2.0,
+      stopLoss: newStrategy.stopLoss || 1.0,
+      maxSlippage: newStrategy.maxSlippage || 0.5,
+      gasLimit: newStrategy.gasLimit || 250000,
+      minProfitThreshold: newStrategy.minProfitThreshold || 25,
+      tokens: newStrategy.tokens || [],
+      dexes: newStrategy.dexes || [],
+      riskLevel: newStrategy.riskLevel || "medium",
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+    }
+
+    setStrategies((prev) => [...prev, strategy])
+    setIsCreating(false)
+    setNewStrategy({
+      name: "",
+      description: "",
+      type: "arbitrage",
+      profitTarget: 2.0,
+      stopLoss: 1.0,
+      maxSlippage: 0.5,
+      gasLimit: 250000,
+      minProfitThreshold: 25,
+      tokens: [],
+      dexes: [],
+      riskLevel: "medium",
+    })
+
+    toast.success("Strategy created successfully!")
   }
 
-  const handleDeleteStrategy = (id: string) => {
-    setStrategies((prev) => prev.filter((s) => s.id !== id))
+  const handleActivateStrategy = (strategyId: string) => {
+    console.log("Activate strategy:", strategyId)
+    setStrategies((prev) => prev.map((s) => (s.id === strategyId ? { ...s, status: "active" as const } : s)))
+    toast.success("Strategy activated!")
   }
 
-  const handleToggleStrategy = (id: string) => {
-    setStrategies((prev) => prev.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s)))
+  const handleDeactivateStrategy = (strategyId: string) => {
+    console.log("Deactivate strategy:", strategyId)
+    setStrategies((prev) => prev.map((s) => (s.id === strategyId ? { ...s, status: "inactive" as const } : s)))
+    toast.success("Strategy deactivated!")
   }
 
-  const handleDuplicateStrategy = (strategy: Strategy) => {
-    const newStrategy: Strategy = {
+  const handleDeleteStrategy = (strategyId: string) => {
+    console.log("Delete strategy:", strategyId)
+    setStrategies((prev) => prev.filter((s) => s.id !== strategyId))
+    if (selectedStrategy?.id === strategyId) {
+      setSelectedStrategy(null)
+    }
+    toast.success("Strategy deleted!")
+  }
+
+  const handleCloneStrategy = (strategy: Strategy) => {
+    console.log("Clone strategy:", strategy)
+    const clonedStrategy: Strategy = {
       ...strategy,
       id: Date.now().toString(),
       name: `${strategy.name} (Copy)`,
-      isActive: false,
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
     }
-    setStrategies((prev) => [...prev, newStrategy])
+    setStrategies((prev) => [...prev, clonedStrategy])
+    toast.success("Strategy cloned successfully!")
   }
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
       case "low":
-        return "text-green-600"
+        return "text-green-500"
       case "medium":
-        return "text-yellow-600"
+        return "text-yellow-500"
       case "high":
-        return "text-red-600"
+        return "text-red-500"
       default:
-        return "text-gray-600"
+        return "text-gray-500"
     }
   }
 
-  const getRiskBadgeVariant = (risk: string) => {
-    switch (risk) {
-      case "low":
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "active":
         return "default"
-      case "medium":
+      case "inactive":
         return "secondary"
-      case "high":
-        return "destructive"
-      default:
+      case "draft":
         return "outline"
+      default:
+        return "secondary"
     }
+  }
+
+  if (strategies.length === 0 && !isCreating) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="w-5 h-5" />
+            Strategy Builder
+          </CardTitle>
+          <CardDescription>Create and manage your trading strategies</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12">
+            <Target className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Strategies Yet</h3>
+            <p className="text-muted-foreground mb-6">
+              Create your first trading strategy to get started with automated arbitrage
+            </p>
+            <Button onClick={handleCreateStrategy} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Create Your First Strategy
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Strategy Builder</h1>
-          <p className="text-muted-foreground">Create and manage your arbitrage trading strategies</p>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="w-5 h-5" />
+                Strategy Builder
+              </CardTitle>
+              <CardDescription>Create, manage, and optimize your trading strategies</CardDescription>
+            </div>
+            <Button onClick={handleCreateStrategy} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Create Strategy
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Strategy List */}
+        <div className="lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Your Strategies</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {strategies.map((strategy) => (
+                <div
+                  key={strategy.id}
+                  className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                    selectedStrategy?.id === strategy.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => setSelectedStrategy(strategy)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium truncate">{strategy.name}</h4>
+                    <Badge variant={getStatusColor(strategy.status)}>{strategy.status}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{strategy.description}</p>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="capitalize">{strategy.type}</span>
+                    <span className={getRiskColor(strategy.riskLevel)}>{strategy.riskLevel} risk</span>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </div>
-        <Button onClick={handleCreateStrategy}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Strategy
-        </Button>
-      </div>
 
-      {isEditing ? (
-        /* Strategy Editor */
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              {currentStrategy ? "Edit Strategy" : "Create New Strategy"}
-            </CardTitle>
-            <CardDescription>Configure your arbitrage trading parameters and risk management settings</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <Tabs defaultValue="basic" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="basic">Basic Settings</TabsTrigger>
-                <TabsTrigger value="advanced">Advanced</TabsTrigger>
-                <TabsTrigger value="risk">Risk Management</TabsTrigger>
-              </TabsList>
+        {/* Strategy Details/Creator */}
+        <div className="lg:col-span-2">
+          {isCreating ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Create New Strategy</CardTitle>
+                <CardDescription>Configure your trading strategy parameters</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="basic" className="space-y-4">
+                  <TabsList>
+                    <TabsTrigger value="basic">Basic Settings</TabsTrigger>
+                    <TabsTrigger value="advanced">Advanced</TabsTrigger>
+                    <TabsTrigger value="risk">Risk Management</TabsTrigger>
+                  </TabsList>
 
-              <TabsContent value="basic" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Strategy Name</Label>
-                    <Input
-                      id="name"
-                      value={editingStrategy.name}
-                      onChange={(e) => setEditingStrategy((prev) => ({ ...prev, name: e.target.value }))}
-                      placeholder="Enter strategy name"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="riskLevel">Risk Level</Label>
-                    <Select
-                      value={editingStrategy.riskLevel}
-                      onValueChange={(value: "low" | "medium" | "high") =>
-                        setEditingStrategy((prev) => ({ ...prev, riskLevel: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low Risk</SelectItem>
-                        <SelectItem value="medium">Medium Risk</SelectItem>
-                        <SelectItem value="high">High Risk</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Input
-                    id="description"
-                    value={editingStrategy.description}
-                    onChange={(e) => setEditingStrategy((prev) => ({ ...prev, description: e.target.value }))}
-                    placeholder="Describe your strategy"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-3">
-                    <Label>Min Profit Threshold: ${editingStrategy.minProfitThreshold}</Label>
-                    <Slider
-                      value={[editingStrategy.minProfitThreshold]}
-                      onValueChange={(value) =>
-                        setEditingStrategy((prev) => ({ ...prev, minProfitThreshold: value[0] }))
-                      }
-                      max={100}
-                      min={1}
-                      step={1}
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label>Max Slippage: {editingStrategy.maxSlippage}%</Label>
-                    <Slider
-                      value={[editingStrategy.maxSlippage]}
-                      onValueChange={(value) => setEditingStrategy((prev) => ({ ...prev, maxSlippage: value[0] }))}
-                      max={5}
-                      min={0.1}
-                      step={0.1}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="autoExecute"
-                    checked={editingStrategy.autoExecute}
-                    onCheckedChange={(checked) => setEditingStrategy((prev) => ({ ...prev, autoExecute: checked }))}
-                  />
-                  <Label htmlFor="autoExecute">Enable automatic execution</Label>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="advanced" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="maxTradeSize">Max Trade Size ($)</Label>
-                    <Input
-                      id="maxTradeSize"
-                      type="number"
-                      value={editingStrategy.maxTradeSize}
-                      onChange={(e) =>
-                        setEditingStrategy((prev) => ({ ...prev, maxTradeSize: Number(e.target.value) }))
-                      }
-                      min="100"
-                      max="10000"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="gasLimit">Gas Limit</Label>
-                    <Input
-                      id="gasLimit"
-                      type="number"
-                      value={editingStrategy.gasLimit}
-                      onChange={(e) => setEditingStrategy((prev) => ({ ...prev, gasLimit: Number(e.target.value) }))}
-                      min="100000"
-                      max="1000000"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <Label>Enabled Exchanges</Label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {["uniswap", "sushiswap", "balancer", "curve", "1inch"].map((exchange) => (
-                      <div key={exchange} className="flex items-center space-x-2">
-                        <Switch
-                          id={exchange}
-                          checked={editingStrategy.enabledExchanges.includes(exchange)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setEditingStrategy((prev) => ({
-                                ...prev,
-                                enabledExchanges: [...prev.enabledExchanges, exchange],
-                              }))
-                            } else {
-                              setEditingStrategy((prev) => ({
-                                ...prev,
-                                enabledExchanges: prev.enabledExchanges.filter((e) => e !== exchange),
-                              }))
-                            }
-                          }}
+                  <TabsContent value="basic" className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Strategy Name *</Label>
+                        <Input
+                          id="name"
+                          placeholder="e.g., ETH-USDC Arbitrage"
+                          value={newStrategy.name}
+                          onChange={(e) => setNewStrategy((prev) => ({ ...prev, name: e.target.value }))}
                         />
-                        <Label htmlFor={exchange} className="text-sm capitalize">
-                          {exchange}
-                        </Label>
                       </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div className="space-y-3">
-                  <Label>Monitored Tokens</Label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {["WETH", "USDC", "USDT", "WBTC", "DAI", "ARB", "GMX", "GRT"].map((token) => (
-                      <div key={token} className="flex items-center space-x-2">
-                        <Switch
-                          id={token}
-                          checked={editingStrategy.enabledTokens.includes(token)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setEditingStrategy((prev) => ({
-                                ...prev,
-                                enabledTokens: [...prev.enabledTokens, token],
-                              }))
-                            } else {
-                              setEditingStrategy((prev) => ({
-                                ...prev,
-                                enabledTokens: prev.enabledTokens.filter((t) => t !== token),
-                              }))
-                            }
-                          }}
-                        />
-                        <Label htmlFor={token} className="text-sm">
-                          {token}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="risk" className="space-y-4">
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Risk management settings help protect your capital. Higher risk levels may yield higher profits but
-                    also increase potential losses.
-                  </AlertDescription>
-                </Alert>
-
-                <div className="space-y-4">
-                  <div className="p-4 border rounded-lg">
-                    <h3 className="font-medium mb-2">Risk Assessment</h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span>Profit Threshold:</span>
-                        <span
-                          className={
-                            editingStrategy.minProfitThreshold > 20
-                              ? "text-green-600"
-                              : editingStrategy.minProfitThreshold > 10
-                                ? "text-yellow-600"
-                                : "text-red-600"
-                          }
+                      <div className="space-y-2">
+                        <Label htmlFor="type">Strategy Type</Label>
+                        <Select
+                          value={newStrategy.type}
+                          onValueChange={(value) => setNewStrategy((prev) => ({ ...prev, type: value as any }))}
                         >
-                          {editingStrategy.minProfitThreshold > 20
-                            ? "Conservative"
-                            : editingStrategy.minProfitThreshold > 10
-                              ? "Moderate"
-                              : "Aggressive"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Slippage Tolerance:</span>
-                        <span
-                          className={
-                            editingStrategy.maxSlippage < 0.5
-                              ? "text-green-600"
-                              : editingStrategy.maxSlippage < 1
-                                ? "text-yellow-600"
-                                : "text-red-600"
-                          }
-                        >
-                          {editingStrategy.maxSlippage < 0.5
-                            ? "Low Risk"
-                            : editingStrategy.maxSlippage < 1
-                              ? "Medium Risk"
-                              : "High Risk"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Trade Size:</span>
-                        <span
-                          className={
-                            editingStrategy.maxTradeSize < 1000
-                              ? "text-green-600"
-                              : editingStrategy.maxTradeSize < 2000
-                                ? "text-yellow-600"
-                                : "text-red-600"
-                          }
-                        >
-                          {editingStrategy.maxTradeSize < 1000
-                            ? "Conservative"
-                            : editingStrategy.maxTradeSize < 2000
-                              ? "Moderate"
-                              : "Aggressive"}
-                        </span>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="arbitrage">Arbitrage</SelectItem>
+                            <SelectItem value="dca">DCA (Dollar Cost Average)</SelectItem>
+                            <SelectItem value="grid">Grid Trading</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="description">Description *</Label>
+                      <Textarea
+                        id="description"
+                        placeholder="Describe your strategy..."
+                        value={newStrategy.description}
+                        onChange={(e) => setNewStrategy((prev) => ({ ...prev, description: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Profit Target (%)</Label>
+                        <div className="px-3">
+                          <Slider
+                            value={[newStrategy.profitTarget || 2.0]}
+                            onValueChange={([value]) => setNewStrategy((prev) => ({ ...prev, profitTarget: value }))}
+                            max={10}
+                            min={0.1}
+                            step={0.1}
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span>0.1%</span>
+                            <span>{newStrategy.profitTarget}%</span>
+                            <span>10%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Min Profit Threshold ($)</Label>
+                        <Input
+                          type="number"
+                          value={newStrategy.minProfitThreshold}
+                          onChange={(e) =>
+                            setNewStrategy((prev) => ({ ...prev, minProfitThreshold: Number(e.target.value) }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="advanced" className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Max Slippage (%)</Label>
+                        <div className="px-3">
+                          <Slider
+                            value={[newStrategy.maxSlippage || 0.5]}
+                            onValueChange={([value]) => setNewStrategy((prev) => ({ ...prev, maxSlippage: value }))}
+                            max={5}
+                            min={0.1}
+                            step={0.1}
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span>0.1%</span>
+                            <span>{newStrategy.maxSlippage}%</span>
+                            <span>5%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Gas Limit</Label>
+                        <Input
+                          type="number"
+                          value={newStrategy.gasLimit}
+                          onChange={(e) => setNewStrategy((prev) => ({ ...prev, gasLimit: Number(e.target.value) }))}
+                        />
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="risk" className="space-y-4">
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Risk Level</Label>
+                        <Select
+                          value={newStrategy.riskLevel}
+                          onValueChange={(value) => setNewStrategy((prev) => ({ ...prev, riskLevel: value as any }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low Risk</SelectItem>
+                            <SelectItem value="medium">Medium Risk</SelectItem>
+                            <SelectItem value="high">High Risk</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Stop Loss (%)</Label>
+                        <div className="px-3">
+                          <Slider
+                            value={[newStrategy.stopLoss || 1.0]}
+                            onValueChange={([value]) => setNewStrategy((prev) => ({ ...prev, stopLoss: value }))}
+                            max={10}
+                            min={0.1}
+                            step={0.1}
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span>0.1%</span>
+                            <span>{newStrategy.stopLoss}%</span>
+                            <span>10%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+
+                <Separator className="my-6" />
+
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleSaveStrategy} className="flex items-center gap-2">
+                    <Save className="w-4 h-4" />
+                    Save Strategy
+                  </Button>
+                  <Button variant="outline" onClick={() => setIsCreating(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : selectedStrategy ? (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>{selectedStrategy.name}</CardTitle>
+                    <CardDescription>{selectedStrategy.description}</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={getStatusColor(selectedStrategy.status)}>{selectedStrategy.status}</Badge>
+                    <Badge variant="outline" className={getRiskColor(selectedStrategy.riskLevel)}>
+                      {selectedStrategy.riskLevel} risk
+                    </Badge>
                   </div>
                 </div>
-              </TabsContent>
-            </Tabs>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Strategy Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-3 border rounded-lg">
+                    <TrendingUp className="w-5 h-5 mx-auto mb-1 text-green-500" />
+                    <p className="text-sm text-muted-foreground">Profit Target</p>
+                    <p className="font-semibold">{selectedStrategy.profitTarget}%</p>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <Shield className="w-5 h-5 mx-auto mb-1 text-red-500" />
+                    <p className="text-sm text-muted-foreground">Stop Loss</p>
+                    <p className="font-semibold">{selectedStrategy.stopLoss}%</p>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <Zap className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+                    <p className="text-sm text-muted-foreground">Max Slippage</p>
+                    <p className="font-semibold">{selectedStrategy.maxSlippage}%</p>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <Target className="w-5 h-5 mx-auto mb-1 text-purple-500" />
+                    <p className="text-sm text-muted-foreground">Min Profit</p>
+                    <p className="font-semibold">${selectedStrategy.minProfitThreshold}</p>
+                  </div>
+                </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setIsEditing(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveStrategy}>
-                <Save className="w-4 h-4 mr-2" />
-                Save Strategy
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        /* Strategy List */
-        <div className="space-y-4">
-          {strategies.length === 0 ? (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Target className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="font-medium mb-2">No strategies created</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Create your first arbitrage strategy to get started
-                </p>
-                <Button onClick={handleCreateStrategy}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Strategy
-                </Button>
+                {/* Actions */}
+                <div className="flex flex-wrap gap-3">
+                  {selectedStrategy.status === "active" ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleDeactivateStrategy(selectedStrategy.id)}
+                      className="flex items-center gap-2"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Deactivate
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => handleActivateStrategy(selectedStrategy.id)}
+                      className="flex items-center gap-2"
+                    >
+                      <Play className="w-4 h-4" />
+                      Activate Strategy
+                    </Button>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    onClick={() => handleCloneStrategy(selectedStrategy)}
+                    className="flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Clone
+                  </Button>
+
+                  <Button variant="outline" className="flex items-center gap-2 bg-transparent">
+                    <Settings className="w-4 h-4" />
+                    Edit
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleDeleteStrategy(selectedStrategy.id)}
+                    className="flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : (
-            strategies.map((strategy) => (
-              <Card key={strategy.id}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${strategy.isActive ? "bg-green-500" : "bg-gray-400"}`} />
-                      <div>
-                        <CardTitle className="text-lg">{strategy.name}</CardTitle>
-                        <CardDescription>{strategy.description}</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={getRiskBadgeVariant(strategy.riskLevel)}>{strategy.riskLevel} risk</Badge>
-                      {strategy.isActive && (
-                        <Badge variant="default">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Active
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <div className="text-sm text-muted-foreground">Min Profit</div>
-                      <div className="font-medium">${strategy.minProfitThreshold}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Max Slippage</div>
-                      <div className="font-medium">{strategy.maxSlippage}%</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Max Trade Size</div>
-                      <div className="font-medium">${strategy.maxTradeSize}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Auto Execute</div>
-                      <div className="font-medium">{strategy.autoExecute ? "Yes" : "No"}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Exchanges:</span>
-                      <div className="flex gap-1">
-                        {strategy.enabledExchanges.slice(0, 3).map((exchange) => (
-                          <Badge key={exchange} variant="outline" className="text-xs">
-                            {exchange}
-                          </Badge>
-                        ))}
-                        {strategy.enabledExchanges.length > 3 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{strategy.enabledExchanges.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleToggleStrategy(strategy.id)}>
-                        {strategy.isActive ? (
-                          <>
-                            <AlertTriangle className="w-3 h-3 mr-1" />
-                            Stop
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-3 h-3 mr-1" />
-                            Start
-                          </>
-                        )}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDuplicateStrategy(strategy)}>
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleEditStrategy(strategy)}>
-                        <Settings className="w-3 h-3" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDeleteStrategy(strategy.id)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <Target className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">Select a strategy to view details</p>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
+
+export default StrategyBuilder

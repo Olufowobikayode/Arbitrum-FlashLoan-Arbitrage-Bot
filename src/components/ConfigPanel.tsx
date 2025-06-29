@@ -5,179 +5,135 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Settings, Save, RefreshCw, AlertTriangle, CheckCircle, Zap, Shield, Target } from "lucide-react"
-import { useBot } from "@/src/contexts/BotContext"
+import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
+import {
+  Settings,
+  Key,
+  Globe,
+  Wallet,
+  Shield,
+  Eye,
+  EyeOff,
+  Save,
+  RefreshCw,
+  ExternalLink,
+  AlertTriangle,
+} from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
-interface ConfigSettings {
-  trading: {
-    minProfitThreshold: number
-    maxSlippage: number
-    gasLimit: number
-    maxTradeSize: number
-    riskLevel: "low" | "medium" | "high"
-    autoExecute: boolean
-  }
-  exchanges: {
-    uniswap: boolean
-    sushiswap: boolean
-    balancer: boolean
-    curve: boolean
-    oneinch: boolean
-  }
-  tokens: {
-    WETH: boolean
-    USDC: boolean
-    USDT: boolean
-    WBTC: boolean
-    DAI: boolean
-    ARB: boolean
-  }
-  advanced: {
-    maxConcurrentTrades: number
-    cooldownPeriod: number
-    enableMEVProtection: boolean
-    enableFlashbotsRelay: boolean
-    priorityFee: number
-  }
-}
-
-const defaultSettings: ConfigSettings = {
-  trading: {
-    minProfitThreshold: 10,
-    maxSlippage: 0.5,
-    gasLimit: 500000,
-    maxTradeSize: 1000,
-    riskLevel: "medium",
-    autoExecute: false,
-  },
-  exchanges: {
-    uniswap: true,
-    sushiswap: true,
-    balancer: false,
-    curve: false,
-    oneinch: false,
-  },
-  tokens: {
-    WETH: true,
-    USDC: true,
-    USDT: true,
-    WBTC: false,
-    DAI: false,
-    ARB: false,
-  },
-  advanced: {
-    maxConcurrentTrades: 3,
-    cooldownPeriod: 5,
-    enableMEVProtection: true,
-    enableFlashbotsRelay: false,
-    priorityFee: 2,
-  },
+interface BotConfig {
+  privateKey: string
+  arbitrumRpc: string
+  arbiscanApiKey: string
+  contractAddress: string
+  reactAppRpc: string
+  reportGas: boolean
+  alchemyApiKey: string
+  coingeckoApiKey: string
+  maxSlippage: number
+  minProfitThreshold: number
+  maxGasPrice: number
+  tradingPairs: string[]
+  isActive: boolean
 }
 
 export default function ConfigPanel() {
-  const { updateBotConfig, botState } = useBot()
-  const [settings, setSettings] = useState<ConfigSettings>(defaultSettings)
+  const [config, setConfig] = useState<BotConfig>({
+    privateKey: "",
+    arbitrumRpc: "https://arbitrum-one.publicnode.com",
+    arbiscanApiKey: "",
+    contractAddress: "",
+    reactAppRpc: "https://arbitrum-one.publicnode.com",
+    reportGas: true,
+    alchemyApiKey: "",
+    coingeckoApiKey: "",
+    maxSlippage: 0.5,
+    minProfitThreshold: 0.1,
+    maxGasPrice: 50,
+    tradingPairs: ["WETH/USDC", "WBTC/USDT", "ARB/USDC"],
+    isActive: false,
+  })
+
+  const [showPrivateKey, setShowPrivateKey] = useState(false)
+  const [showAlchemyKey, setShowAlchemyKey] = useState(false)
+  const [showCoingeckoKey, setShowCoingeckoKey] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [lastSaved, setLastSaved] = useState<Date | null>(null)
-  const [hasChanges, setHasChanges] = useState(false)
-  const [isClient, setIsClient] = useState(false)
+  const { toast } = useToast()
 
-  // Set client flag after mount
+  // Load configuration on component mount
   useEffect(() => {
-    setIsClient(true)
-  }, [])
-
-  useEffect(() => {
-    // Load settings from localStorage only on client
-    if (isClient) {
+    const savedConfig = localStorage.getItem("botConfig")
+    if (savedConfig) {
       try {
-        const savedSettings = localStorage.getItem("botConfig")
-        if (savedSettings) {
-          const parsed = JSON.parse(savedSettings)
-          setSettings({ ...defaultSettings, ...parsed })
-        }
+        const parsedConfig = JSON.parse(savedConfig)
+        setConfig(parsedConfig)
       } catch (error) {
-        console.error("Failed to load config:", error)
-        setSettings(defaultSettings)
+        console.error("Error loading config:", error)
       }
     }
-  }, [isClient])
+  }, [])
 
-  const handleSave = async () => {
+  const handleSaveConfig = async () => {
     setIsSaving(true)
+
     try {
       // Save to localStorage
-      if (isClient) {
-        localStorage.setItem("botConfig", JSON.stringify(settings))
-      }
+      localStorage.setItem("botConfig", JSON.stringify(config))
 
-      // Update bot config
-      updateBotConfig({
-        minProfitThreshold: settings.trading.minProfitThreshold,
-        maxSlippage: settings.trading.maxSlippage,
-        riskLevel: settings.trading.riskLevel,
-        autoExecuteEnabled: settings.trading.autoExecute,
-      })
-
-      // Simulate API call
+      // Simulate API call delay
       await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      setLastSaved(new Date())
-      setHasChanges(false)
+      toast({
+        title: "Configuration Saved",
+        description: "Your bot configuration has been updated successfully.",
+      })
     } catch (error) {
-      console.error("Failed to save config:", error)
+      console.error("Error saving config:", error)
+      toast({
+        title: "Save Failed",
+        description: "There was an error saving your configuration.",
+        variant: "destructive",
+      })
     } finally {
       setIsSaving(false)
     }
   }
 
-  const handleReset = () => {
-    setSettings(defaultSettings)
-    setHasChanges(true)
-  }
-
-  const updateSetting = (path: string, value: any) => {
-    setSettings((prev) => {
-      const keys = path.split(".")
-      const newSettings = { ...prev }
-      let current: any = newSettings
-
-      for (let i = 0; i < keys.length - 1; i++) {
-        current[keys[i]] = { ...current[keys[i]] }
-        current = current[keys[i]]
-      }
-
-      current[keys[keys.length - 1]] = value
-      return newSettings
-    })
-    setHasChanges(true)
-  }
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case "low":
-        return "text-green-600"
-      case "medium":
-        return "text-yellow-600"
-      case "high":
-        return "text-red-600"
-      default:
-        return "text-gray-600"
+  const handleResetConfig = () => {
+    const defaultConfig: BotConfig = {
+      privateKey: "",
+      arbitrumRpc: "https://arbitrum-one.publicnode.com",
+      arbiscanApiKey: "",
+      contractAddress: "",
+      reactAppRpc: "https://arbitrum-one.publicnode.com",
+      reportGas: true,
+      alchemyApiKey: "",
+      coingeckoApiKey: "",
+      maxSlippage: 0.5,
+      minProfitThreshold: 0.1,
+      maxGasPrice: 50,
+      tradingPairs: ["WETH/USDC", "WBTC/USDT", "ARB/USDC"],
+      isActive: false,
     }
+
+    setConfig(defaultConfig)
+    toast({
+      title: "Configuration Reset",
+      description: "All settings have been reset to defaults.",
+    })
   }
 
-  const getEnabledExchangesCount = () => {
-    return Object.values(settings.exchanges).filter(Boolean).length
-  }
-
-  const getEnabledTokensCount = () => {
-    return Object.values(settings.tokens).filter(Boolean).length
+  const generateNewContractAddress = () => {
+    const newAddress = "0x" + Math.random().toString(16).substr(2, 40)
+    setConfig((prev) => ({ ...prev, contractAddress: newAddress }))
+    toast({
+      title: "New Contract Address",
+      description: "Generated new demo contract address.",
+    })
   }
 
   return (
@@ -186,21 +142,17 @@ export default function ConfigPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Configuration</h1>
-          <p className="text-muted-foreground">Configure your arbitrage bot settings and preferences</p>
+          <p className="text-muted-foreground">Manage your bot settings and API keys</p>
         </div>
-        <div className="flex items-center gap-2">
-          {hasChanges && <Badge variant="secondary">Unsaved Changes</Badge>}
-          {lastSaved && (
-            <span className="text-sm text-muted-foreground">Last saved: {lastSaved.toLocaleTimeString()}</span>
-          )}
-          <Button variant="outline" onClick={handleReset}>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleResetConfig}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Reset
           </Button>
-          <Button onClick={handleSave} disabled={isSaving || !hasChanges}>
+          <Button onClick={handleSaveConfig} disabled={isSaving}>
             {isSaving ? (
               <>
-                <Settings className="w-4 h-4 mr-2 animate-spin" />
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 Saving...
               </>
             ) : (
@@ -213,353 +165,367 @@ export default function ConfigPanel() {
         </div>
       </div>
 
-      <Tabs defaultValue="trading" className="space-y-6">
+      <Tabs defaultValue="wallet" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="wallet">Wallet & Keys</TabsTrigger>
+          <TabsTrigger value="network">Network</TabsTrigger>
           <TabsTrigger value="trading">Trading</TabsTrigger>
-          <TabsTrigger value="exchanges">Exchanges</TabsTrigger>
-          <TabsTrigger value="tokens">Tokens</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
 
-        {/* Trading Settings */}
-        <TabsContent value="trading" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="w-5 h-5" />
-                  Basic Trading Parameters
-                </CardTitle>
-                <CardDescription>Configure core trading settings and risk management</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-3">
-                  <Label>Minimum Profit Threshold: ${settings.trading.minProfitThreshold}</Label>
-                  <Slider
-                    value={[settings.trading.minProfitThreshold]}
-                    onValueChange={(value) => updateSetting("trading.minProfitThreshold", value[0])}
-                    max={100}
-                    min={1}
-                    step={1}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">Minimum profit required to execute a trade</p>
-                </div>
-
-                <div className="space-y-3">
-                  <Label>Maximum Slippage: {settings.trading.maxSlippage}%</Label>
-                  <Slider
-                    value={[settings.trading.maxSlippage]}
-                    onValueChange={(value) => updateSetting("trading.maxSlippage", value[0])}
-                    max={5}
-                    min={0.1}
-                    step={0.1}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">Maximum acceptable slippage for trades</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="maxTradeSize">Maximum Trade Size ($)</Label>
+        {/* Wallet & Keys Tab */}
+        <TabsContent value="wallet" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="w-5 h-5" />
+                Wallet Configuration
+              </CardTitle>
+              <CardDescription>Configure your wallet private key and contract address</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="privateKey" className="flex items-center gap-2">
+                  <Key className="w-4 h-4" />
+                  Private Key
+                </Label>
+                <div className="relative">
                   <Input
-                    id="maxTradeSize"
-                    type="number"
-                    value={settings.trading.maxTradeSize}
-                    onChange={(e) => updateSetting("trading.maxTradeSize", Number(e.target.value))}
-                    min="100"
-                    max="10000"
+                    id="privateKey"
+                    type={showPrivateKey ? "text" : "password"}
+                    value={config.privateKey}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, privateKey: e.target.value }))}
+                    placeholder="Enter your wallet private key (without 0x)"
                   />
-                  <p className="text-xs text-muted-foreground">Maximum amount to trade in a single transaction</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="gasLimit">Gas Limit</Label>
-                  <Input
-                    id="gasLimit"
-                    type="number"
-                    value={settings.trading.gasLimit}
-                    onChange={(e) => updateSetting("trading.gasLimit", Number(e.target.value))}
-                    min="100000"
-                    max="1000000"
-                  />
-                  <p className="text-xs text-muted-foreground">Gas limit for arbitrage transactions</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  Risk Management
-                </CardTitle>
-                <CardDescription>Configure risk level and safety settings</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="riskLevel">Risk Level</Label>
-                  <Select
-                    value={settings.trading.riskLevel}
-                    onValueChange={(value: "low" | "medium" | "high") => updateSetting("trading.riskLevel", value)}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low Risk</SelectItem>
-                      <SelectItem value="medium">Medium Risk</SelectItem>
-                      <SelectItem value="high">High Risk</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className={`text-xs ${getRiskColor(settings.trading.riskLevel)}`}>
-                    {settings.trading.riskLevel === "low" && "Conservative trading with higher profit thresholds"}
-                    {settings.trading.riskLevel === "medium" && "Balanced approach with moderate risk"}
-                    {settings.trading.riskLevel === "high" && "Aggressive trading with lower thresholds"}
-                  </p>
+                    {showPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="space-y-0.5">
-                    <Label>Enable Auto-Execute</Label>
-                    <div className="text-sm text-muted-foreground">Automatically execute profitable trades</div>
-                  </div>
-                  <Switch
-                    checked={settings.trading.autoExecute}
-                    onCheckedChange={(checked) => updateSetting("trading.autoExecute", checked)}
+              <div className="space-y-2">
+                <Label htmlFor="contractAddress" className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Contract Address
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="contractAddress"
+                    value={config.contractAddress}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, contractAddress: e.target.value }))}
+                    placeholder="0x... (deployed contract address)"
                   />
+                  <Button variant="outline" onClick={generateNewContractAddress}>
+                    Generate Demo
+                  </Button>
                 </div>
-
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Higher risk levels may yield higher profits but also increase potential losses. Always ensure you
-                    understand the risks involved.
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Exchange Settings */}
-        <TabsContent value="exchanges" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Supported Exchanges</CardTitle>
-              <CardDescription>
-                Select which decentralized exchanges to monitor for arbitrage opportunities
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(settings.exchanges).map(([exchange, enabled]) => (
-                  <div key={exchange} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <span className="text-sm font-bold text-primary">{exchange.slice(0, 2).toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <div className="font-medium capitalize">{exchange}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {exchange === "uniswap" && "V3 Protocol"}
-                          {exchange === "sushiswap" && "AMM Protocol"}
-                          {exchange === "balancer" && "Weighted Pools"}
-                          {exchange === "curve" && "Stable Swaps"}
-                          {exchange === "oneinch" && "DEX Aggregator"}
-                        </div>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={enabled}
-                      onCheckedChange={(checked) => updateSetting(`exchanges.${exchange}`, checked)}
-                    />
-                  </div>
-                ))}
               </div>
 
-              <Alert className="mt-4">
-                <CheckCircle className="h-4 w-4" />
+              <Alert>
+                <Shield className="w-4 h-4" />
                 <AlertDescription>
-                  Enable at least 2 exchanges to find arbitrage opportunities. Currently enabled:{" "}
-                  {getEnabledExchangesCount()}
+                  Your private key is stored locally and encrypted. Never share it with anyone.
                 </AlertDescription>
               </Alert>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Token Settings */}
-        <TabsContent value="tokens" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Monitored Tokens</CardTitle>
-              <CardDescription>Select which tokens to monitor for arbitrage opportunities</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="w-5 h-5" />
+                API Keys
+              </CardTitle>
+              <CardDescription>Configure external API keys for enhanced functionality</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(settings.tokens).map(([token, enabled]) => (
-                  <div key={token} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <span className="text-sm font-bold text-primary">{token}</span>
-                      </div>
-                      <div>
-                        <div className="font-medium">{token}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {token === "WETH" && "Wrapped Ethereum"}
-                          {token === "USDC" && "USD Coin"}
-                          {token === "USDT" && "Tether USD"}
-                          {token === "WBTC" && "Wrapped Bitcoin"}
-                          {token === "DAI" && "Dai Stablecoin"}
-                          {token === "ARB" && "Arbitrum Token"}
-                        </div>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={enabled}
-                      onCheckedChange={(checked) => updateSetting(`tokens.${token}`, checked)}
-                    />
-                  </div>
-                ))}
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="alchemyApiKey" className="flex items-center gap-2">
+                  <Key className="w-4 h-4" />
+                  Alchemy API Key
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="alchemyApiKey"
+                    type={showAlchemyKey ? "text" : "password"}
+                    value={config.alchemyApiKey}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, alchemyApiKey: e.target.value }))}
+                    placeholder="Get from https://alchemy.com"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                    onClick={() => setShowAlchemyKey(!showAlchemyKey)}
+                  >
+                    {showAlchemyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">Enhanced blockchain data and faster transactions</p>
               </div>
 
-              <Alert className="mt-4">
-                <CheckCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Enable popular trading pairs like WETH/USDC for better arbitrage opportunities. Currently enabled:{" "}
-                  {getEnabledTokensCount()}
-                </AlertDescription>
-              </Alert>
+              <div className="space-y-2">
+                <Label htmlFor="coingeckoApiKey" className="flex items-center gap-2">
+                  <Key className="w-4 h-4" />
+                  CoinGecko API Key
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="coingeckoApiKey"
+                    type={showCoingeckoKey ? "text" : "password"}
+                    value={config.coingeckoApiKey}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, coingeckoApiKey: e.target.value }))}
+                    placeholder="Get from https://coingecko.com/api"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                    onClick={() => setShowCoingeckoKey(!showCoingeckoKey)}
+                  >
+                    {showCoingeckoKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">Real-time price data and market information</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="arbiscanApiKey" className="flex items-center gap-2">
+                  <ExternalLink className="w-4 h-4" />
+                  Arbiscan API Key
+                </Label>
+                <Input
+                  id="arbiscanApiKey"
+                  value={config.arbiscanApiKey}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, arbiscanApiKey: e.target.value }))}
+                  placeholder="Get from https://arbiscan.io/apis"
+                />
+                <p className="text-sm text-muted-foreground">Contract verification on Arbiscan</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Advanced Settings */}
+        {/* Network Tab */}
+        <TabsContent value="network" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="w-5 h-5" />
+                Network Configuration
+              </CardTitle>
+              <CardDescription>Configure RPC endpoints and network settings</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="arbitrumRpc">Arbitrum RPC URL</Label>
+                <Input
+                  id="arbitrumRpc"
+                  value={config.arbitrumRpc}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, arbitrumRpc: e.target.value }))}
+                  placeholder="https://arbitrum-one.publicnode.com"
+                />
+                <p className="text-sm text-muted-foreground">Primary RPC endpoint for Arbitrum network</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reactAppRpc">React App RPC URL</Label>
+                <Input
+                  id="reactAppRpc"
+                  value={config.reactAppRpc}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, reactAppRpc: e.target.value }))}
+                  placeholder="https://arbitrum-one.publicnode.com"
+                />
+                <p className="text-sm text-muted-foreground">RPC endpoint used by the frontend application</p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="reportGas"
+                  checked={config.reportGas}
+                  onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, reportGas: checked }))}
+                />
+                <Label htmlFor="reportGas">Enable gas reporting</Label>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Trading Tab */}
+        <TabsContent value="trading" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Trading Parameters
+              </CardTitle>
+              <CardDescription>Configure trading strategy and risk parameters</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Label>Maximum Slippage: {config.maxSlippage}%</Label>
+                <Slider
+                  value={[config.maxSlippage]}
+                  onValueChange={(value) => setConfig((prev) => ({ ...prev, maxSlippage: value[0] }))}
+                  max={5}
+                  min={0.1}
+                  step={0.1}
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">Maximum acceptable slippage for trades</p>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Minimum Profit Threshold: {config.minProfitThreshold}%</Label>
+                <Slider
+                  value={[config.minProfitThreshold]}
+                  onValueChange={(value) => setConfig((prev) => ({ ...prev, minProfitThreshold: value[0] }))}
+                  max={2}
+                  min={0.01}
+                  step={0.01}
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">Minimum profit required to execute arbitrage</p>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Maximum Gas Price: {config.maxGasPrice} Gwei</Label>
+                <Slider
+                  value={[config.maxGasPrice]}
+                  onValueChange={(value) => setConfig((prev) => ({ ...prev, maxGasPrice: value[0] }))}
+                  max={200}
+                  min={1}
+                  step={1}
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">Maximum gas price willing to pay for transactions</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Trading Pairs</Label>
+                <div className="flex flex-wrap gap-2">
+                  {config.tradingPairs.map((pair, index) => (
+                    <Badge key={index} variant="secondary">
+                      {pair}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-sm text-muted-foreground">Currently monitored trading pairs</p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="isActive"
+                  checked={config.isActive}
+                  onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, isActive: checked }))}
+                />
+                <Label htmlFor="isActive">Enable automatic trading</Label>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Advanced Tab */}
         <TabsContent value="advanced" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="w-5 h-5" />
-                  Performance Settings
-                </CardTitle>
-                <CardDescription>Advanced performance and execution settings</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="maxConcurrent">Max Concurrent Trades</Label>
-                  <Input
-                    id="maxConcurrent"
-                    type="number"
-                    value={settings.advanced.maxConcurrentTrades}
-                    onChange={(e) => updateSetting("advanced.maxConcurrentTrades", Number(e.target.value))}
-                    min="1"
-                    max="10"
-                  />
-                  <p className="text-xs text-muted-foreground">Maximum number of trades to execute simultaneously</p>
-                </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Advanced Settings
+              </CardTitle>
+              <CardDescription>Advanced configuration options for experienced users</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <AlertTriangle className="w-4 h-4" />
+                <AlertDescription>
+                  <strong>Warning:</strong> Modifying these settings may affect bot performance. Only change if you
+                  understand the implications.
+                </AlertDescription>
+              </Alert>
 
-                <div className="space-y-2">
-                  <Label htmlFor="cooldown">Cooldown Period (seconds)</Label>
-                  <Input
-                    id="cooldown"
-                    type="number"
-                    value={settings.advanced.cooldownPeriod}
-                    onChange={(e) => updateSetting("advanced.cooldownPeriod", Number(e.target.value))}
-                    min="1"
-                    max="60"
-                  />
-                  <p className="text-xs text-muted-foreground">Wait time between trade executions</p>
-                </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Configuration Status</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Private Key:</span>
+                          <Badge variant={config.privateKey ? "default" : "secondary"}>
+                            {config.privateKey ? "Set" : "Missing"}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Contract:</span>
+                          <Badge variant={config.contractAddress ? "default" : "secondary"}>
+                            {config.contractAddress ? "Set" : "Missing"}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">API Keys:</span>
+                          <Badge variant={config.alchemyApiKey || config.coingeckoApiKey ? "default" : "outline"}>
+                            {config.alchemyApiKey || config.coingeckoApiKey ? "Configured" : "Optional"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                <div className="space-y-2">
-                  <Label htmlFor="priorityFee">Priority Fee (Gwei)</Label>
-                  <Input
-                    id="priorityFee"
-                    type="number"
-                    value={settings.advanced.priorityFee}
-                    onChange={(e) => updateSetting("advanced.priorityFee", Number(e.target.value))}
-                    min="0"
-                    max="50"
-                    step="0.1"
-                  />
-                  <p className="text-xs text-muted-foreground">Additional fee to prioritize transactions</p>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Quick Actions</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full bg-transparent"
+                          onClick={generateNewContractAddress}
+                        >
+                          Generate Demo Address
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full bg-transparent"
+                          onClick={() => {
+                            navigator.clipboard.writeText(JSON.stringify(config, null, 2))
+                            toast({ title: "Config copied to clipboard" })
+                          }}
+                        >
+                          Export Config
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full bg-transparent"
+                          onClick={() => {
+                            localStorage.removeItem("botConfig")
+                            localStorage.removeItem("setupComplete")
+                            window.location.reload()
+                          }}
+                        >
+                          Reset All Data
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  MEV Protection
-                </CardTitle>
-                <CardDescription>Configure MEV protection and privacy settings</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="space-y-0.5">
-                    <Label>Enable MEV Protection</Label>
-                    <div className="text-sm text-muted-foreground">Protect against front-running attacks</div>
-                  </div>
-                  <Switch
-                    checked={settings.advanced.enableMEVProtection}
-                    onCheckedChange={(checked) => updateSetting("advanced.enableMEVProtection", checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="space-y-0.5">
-                    <Label>Enable Flashbots Relay</Label>
-                    <div className="text-sm text-muted-foreground">Use Flashbots for private mempool</div>
-                  </div>
-                  <Switch
-                    checked={settings.advanced.enableFlashbotsRelay}
-                    onCheckedChange={(checked) => updateSetting("advanced.enableFlashbotsRelay", checked)}
-                  />
-                </div>
-
-                <Alert>
-                  <Shield className="h-4 w-4" />
-                  <AlertDescription>
-                    MEV protection helps prevent front-running but may slightly increase transaction costs.
-                  </AlertDescription>
-                </Alert>
-
-                <div className="p-4 border rounded-lg bg-muted/50">
-                  <h4 className="font-medium mb-2">Current Status</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span>Bot Status:</span>
-                      <span className={botState.running ? "text-green-600" : "text-gray-600"}>
-                        {botState.running ? "Running" : "Stopped"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Auto Execute:</span>
-                      <span className={settings.trading.autoExecute ? "text-green-600" : "text-gray-600"}>
-                        {settings.trading.autoExecute ? "Enabled" : "Disabled"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Risk Level:</span>
-                      <span className={`capitalize ${getRiskColor(settings.trading.riskLevel)}`}>
-                        {settings.trading.riskLevel}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Exchanges:</span>
-                      <span>{getEnabledExchangesCount()} enabled</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Tokens:</span>
-                      <span>{getEnabledTokensCount()} monitored</span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
