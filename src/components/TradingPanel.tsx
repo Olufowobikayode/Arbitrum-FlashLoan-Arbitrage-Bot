@@ -1,414 +1,383 @@
 "use client"
 
-import type React from "react"
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Separator } from "@/components/ui/separator"
-import {
-  Play,
-  Pause,
-  Square,
-  TrendingUp,
-  DollarSign,
-  Zap,
-  Activity,
-  Target,
-  AlertTriangle,
-  CheckCircle,
-  RefreshCw,
-  Settings,
-  BarChart3,
-} from "lucide-react"
-import { useBot } from "../contexts/BotContext"
-import { useWeb3 } from "../contexts/Web3Context"
-import OpportunityList from "./OpportunityList"
-import ProfitChart from "./ProfitChart"
-import MEVProtectionPanel from "./MEVProtectionPanel"
-import GasOptimizationPanel from "./GasOptimizationPanel"
+import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
+import { Bot, Settings, Play, Pause, RefreshCw, AlertTriangle, DollarSign, Zap, Target, TrendingUp } from "lucide-react"
+import { useBot } from "@/src/contexts/BotContext"
+import { useWeb3 } from "@/src/contexts/Web3Context"
 
-const TradingPanel: React.FC = () => {
-  const {
-    botState,
-    opportunities,
-    isScanning,
-    autoExecutionStats,
-    telegramService,
-    startBot,
-    stopBot,
-    emergencyStop,
-    scanOpportunities,
-    executeTrade,
-  } = useBot()
+interface TradingConfig {
+  minProfitThreshold: number
+  maxSlippage: number
+  gasLimit: number
+  autoExecute: boolean
+  maxTradeSize: number
+  enabledExchanges: string[]
+  enabledTokens: string[]
+}
 
-  const { balance, gasPrice, isConnected } = useWeb3()
-  const [selectedOpportunity, setSelectedOpportunity] = useState<string | null>(null)
-  const [isExecuting, setIsExecuting] = useState(false)
+const defaultConfig: TradingConfig = {
+  minProfitThreshold: 10,
+  maxSlippage: 0.5,
+  gasLimit: 500000,
+  autoExecute: false,
+  maxTradeSize: 1000,
+  enabledExchanges: ["uniswap", "sushiswap", "balancer"],
+  enabledTokens: ["WETH", "USDC", "USDT", "WBTC"],
+}
 
-  // Performance metrics
-  const performanceMetrics = useMemo(() => {
-    const totalTrades = autoExecutionStats.totalExecutions
-    const successRate = totalTrades > 0 ? (autoExecutionStats.successfulExecutions / totalTrades) * 100 : 0
-    const avgProfitPerTrade =
-      autoExecutionStats.successfulExecutions > 0
-        ? autoExecutionStats.totalProfit / autoExecutionStats.successfulExecutions
-        : 0
-    const uptimeHours = (Date.now() - botState.startTime) / (1000 * 60 * 60)
-    const profitPerHour = uptimeHours > 0 ? botState.totalProfit / uptimeHours : 0
+export default function TradingPanel() {
+  const { botState, opportunities, startBot, stopBot, executeArbitrage } = useBot()
+  const { isConnected, balance } = useWeb3()
+  const [config, setConfig] = useState<TradingConfig>(defaultConfig)
+  const [isExecuting, setIsExecuting] = useState<string | null>(null)
 
-    return {
-      successRate: Math.round(successRate * 10) / 10,
-      avgProfitPerTrade: Math.round(avgProfitPerTrade * 100) / 100,
-      profitPerHour: Math.round(profitPerHour * 100) / 100,
-      totalTrades,
+  const handleBotToggle = () => {
+    if (botState.running) {
+      stopBot()
+    } else {
+      startBot()
     }
-  }, [autoExecutionStats, botState.totalProfit, botState.startTime])
+  }
 
-  const handleExecuteTrade = async (opportunityId?: string) => {
-    setIsExecuting(true)
+  const handleExecuteOpportunity = async (opportunity: any) => {
+    setIsExecuting(opportunity.id)
     try {
-      await executeTrade(opportunityId || selectedOpportunity || undefined)
+      await executeArbitrage(opportunity)
+    } catch (error) {
+      console.error("Failed to execute opportunity:", error)
     } finally {
-      setIsExecuting(false)
-      setSelectedOpportunity(null)
+      setIsExecuting(null)
     }
   }
 
-  const getStatusColor = (status: string) => {
-    if (status.includes("Operational")) return "bg-green-500"
-    if (status.includes("Stopped")) return "bg-red-500"
-    if (status.includes("EMERGENCY")) return "bg-red-600"
-    return "bg-gray-500"
-  }
-
-  const getTelegramStatus = () => {
-    if (!telegramService) return { status: "Disabled", variant: "secondary" as const }
-
-    const connectionStatus = telegramService.getConnectionStatus()
-    switch (connectionStatus) {
-      case "connected":
-        return { status: "Connected", variant: "default" as const }
-      case "testing":
-        return { status: "Testing", variant: "secondary" as const }
-      default:
-        return { status: "Disconnected", variant: "destructive" as const }
-    }
+  const handleConfigChange = (key: keyof TradingConfig, value: any) => {
+    setConfig((prev) => ({ ...prev, [key]: value }))
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Trading Control Center</h1>
-          <p className="text-muted-foreground">Monitor and control your arbitrage trading operations</p>
+          <h1 className="text-3xl font-bold">Trading Panel</h1>
+          <p className="text-muted-foreground">Configure and monitor your arbitrage trading bot</p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Badge className={getStatusColor(botState.status)}>
-            <div className={`w-2 h-2 rounded-full mr-2 ${botState.running ? "bg-white" : "bg-gray-300"}`} />
-            {botState.status}
+        <div className="flex items-center gap-4">
+          <Badge variant={botState.running ? "default" : "secondary"} className="px-3 py-1">
+            <div
+              className={`w-2 h-2 rounded-full mr-2 ${botState.running ? "bg-green-500 animate-pulse" : "bg-gray-400"}`}
+            />
+            {botState.running ? "Active" : "Inactive"}
           </Badge>
-
-          <Badge variant={getTelegramStatus().variant}>{getTelegramStatus().status}</Badge>
+          <Button onClick={handleBotToggle} disabled={!isConnected} size="lg">
+            {botState.running ? (
+              <>
+                <Pause className="w-4 h-4 mr-2" />
+                Stop Trading
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Start Trading
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-green-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Total Profit</p>
-                <p className="text-2xl font-bold">${botState.totalProfit.toFixed(2)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Connection Warning */}
+      {!isConnected && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Connect your wallet to start trading. The bot requires wallet access to execute arbitrage transactions.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-blue-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Success Rate</p>
-                <p className="text-2xl font-bold">{performanceMetrics.successRate}%</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-purple-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Opportunities</p>
-                <p className="text-2xl font-bold">{opportunities.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-orange-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Gas Price</p>
-                <p className="text-2xl font-bold">{gasPrice} Gwei</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Control Panel */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Bot Controls
-          </CardTitle>
-          <CardDescription>Start, stop, and manage your trading bot</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-4">
-            {!botState.running ? (
-              <Button onClick={startBot} disabled={!isConnected} className="flex items-center gap-2" size="lg">
-                <Play className="w-4 h-4" />
-                Start Trading Bot
-              </Button>
-            ) : (
-              <Button onClick={stopBot} variant="outline" className="flex items-center gap-2 bg-transparent" size="lg">
-                <Pause className="w-4 h-4" />
-                Stop Bot
-              </Button>
-            )}
-
-            <Button onClick={emergencyStop} variant="destructive" className="flex items-center gap-2" size="lg">
-              <Square className="w-4 h-4" />
-              Emergency Stop
-            </Button>
-
-            <Separator orientation="vertical" className="h-8" />
-
-            <Button
-              onClick={scanOpportunities}
-              disabled={isScanning}
-              variant="outline"
-              className="flex items-center gap-2 bg-transparent"
-            >
-              <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
-              {isScanning ? "Scanning..." : "Manual Scan"}
-            </Button>
-
-            {selectedOpportunity && (
-              <Button onClick={() => handleExecuteTrade()} disabled={isExecuting} className="flex items-center gap-2">
-                <Activity className="w-4 h-4" />
-                {isExecuting ? "Executing..." : "Execute Selected"}
-              </Button>
-            )}
-          </div>
-
-          {!isConnected && (
-            <Alert className="mt-4">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>Please connect your wallet to enable trading functionality.</AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Performance Dashboard */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5" />
-            Performance Metrics
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Success Rate</span>
-                <span className="text-sm text-muted-foreground">{performanceMetrics.successRate}%</span>
-              </div>
-              <Progress value={performanceMetrics.successRate} className="h-2" />
-              <p className="text-xs text-muted-foreground">
-                {autoExecutionStats.successfulExecutions} successful out of {performanceMetrics.totalTrades} total
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Avg Profit/Trade</span>
-                <span className="text-sm text-muted-foreground">${performanceMetrics.avgProfitPerTrade}</span>
-              </div>
-              <Progress value={Math.min(100, performanceMetrics.avgProfitPerTrade)} className="h-2" />
-              <p className="text-xs text-muted-foreground">Per successful trade</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Profit/Hour</span>
-                <span className="text-sm text-muted-foreground">${performanceMetrics.profitPerHour}</span>
-              </div>
-              <Progress value={Math.min(100, performanceMetrics.profitPerHour / 10)} className="h-2" />
-              <p className="text-xs text-muted-foreground">Current rate</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Main Content */}
-      <Tabs defaultValue="opportunities" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="opportunities">Opportunities</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="mev-protection">MEV Protection</TabsTrigger>
-          <TabsTrigger value="gas-optimization">Gas Optimization</TabsTrigger>
+      <Tabs defaultValue="opportunities" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="opportunities">Live Opportunities</TabsTrigger>
+          <TabsTrigger value="configuration">Configuration</TabsTrigger>
+          <TabsTrigger value="execution">Manual Execution</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="opportunities" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <OpportunityList
-                opportunities={opportunities}
-                onSelect={setSelectedOpportunity}
-                selectedId={selectedOpportunity}
-              />
-            </div>
+        {/* Live Opportunities Tab */}
+        <TabsContent value="opportunities" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Active Opportunities</CardTitle>
+                <Target className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{opportunities.length}</div>
+                <p className="text-xs text-muted-foreground">Currently available</p>
+              </CardContent>
+            </Card>
 
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Quick Execute</CardTitle>
-                  <CardDescription>Execute the most profitable opportunity</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {opportunities.length > 0 ? (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Best Opportunity</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">
+                  {opportunities.length > 0
+                    ? `${Math.max(...opportunities.map((o) => o.profitPercent)).toFixed(2)}%`
+                    : "0%"}
+                </div>
+                <p className="text-xs text-muted-foreground">Profit potential</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  ${opportunities.reduce((sum, opp) => sum + opp.profitUSD, 0).toFixed(2)}
+                </div>
+                <p className="text-xs text-muted-foreground">Available profit</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Live Arbitrage Opportunities</CardTitle>
+              <CardDescription>
+                Real-time opportunities detected across DEXs • Auto-refresh every 5 seconds
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {opportunities.length === 0 ? (
+                <div className="text-center py-12">
+                  {botState.running ? (
                     <div className="space-y-4">
-                      <div className="p-3 border rounded-lg">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="font-medium">Best Opportunity</span>
-                          <Badge variant="default">${opportunities[0]?.estimatedProfit?.toFixed(2) || "0.00"}</Badge>
-                        </div>
+                      <RefreshCw className="w-12 h-12 mx-auto text-muted-foreground animate-spin" />
+                      <div>
+                        <h3 className="font-medium">Scanning for opportunities...</h3>
                         <p className="text-sm text-muted-foreground">
-                          {opportunities[0]?.baseToken?.symbol}/{opportunities[0]?.quoteToken?.symbol}
+                          The bot is actively monitoring DEXs for arbitrage opportunities
                         </p>
                       </div>
-
-                      <Button
-                        onClick={() => handleExecuteTrade(opportunities[0]?.id)}
-                        disabled={isExecuting || !botState.running}
-                        className="w-full"
-                      >
-                        {isExecuting ? "Executing..." : "Execute Best Opportunity"}
-                      </Button>
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <TrendingUp className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No opportunities available</p>
-                      <p className="text-sm">Run a scan to find arbitrage opportunities</p>
+                    <div className="space-y-4">
+                      <Bot className="w-12 h-12 mx-auto text-muted-foreground" />
+                      <div>
+                        <h3 className="font-medium">Bot is not running</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Start the bot to begin scanning for arbitrage opportunities
+                        </p>
+                      </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">System Status</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Auto-execution</span>
-                    <Badge variant={botState.autoExecuteEnabled ? "default" : "secondary"}>
-                      {botState.autoExecuteEnabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Simulation Mode</span>
-                    <Badge variant={botState.simulationEnabled ? "default" : "secondary"}>
-                      {botState.simulationEnabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Security Status</span>
-                    <Badge variant={botState.securityStatus.includes("Normal") ? "default" : "destructive"}>
-                      {botState.securityStatus.includes("Normal") ? (
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                      ) : (
-                        <AlertTriangle className="w-3 h-3 mr-1" />
-                      )}
-                      {botState.securityStatus.replace("🟢 ", "").replace("🔴 ", "")}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Consecutive Failures</span>
-                    <Badge variant={botState.consecutiveFailures > 3 ? "destructive" : "secondary"}>
-                      {botState.consecutiveFailures}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {opportunities.map((opportunity) => (
+                    <div
+                      key={opportunity.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="font-medium text-lg">
+                            {opportunity.tokenA}/{opportunity.tokenB}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">
+                              {opportunity.exchangeA}
+                            </Badge>
+                            <span className="text-muted-foreground">→</span>
+                            <Badge variant="outline" className="text-xs">
+                              {opportunity.exchangeB}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <span>Price A: ${opportunity.priceA.toFixed(2)}</span>
+                          <span>Price B: ${opportunity.priceB.toFixed(2)}</span>
+                          <span>Gas: {opportunity.gasEstimate.toFixed(4)} ETH</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-green-600">+${opportunity.profitUSD.toFixed(2)}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {opportunity.profitPercent.toFixed(2)}% profit
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => handleExecuteOpportunity(opportunity)}
+                          disabled={isExecuting === opportunity.id || !isConnected}
+                          className="min-w-[100px]"
+                        >
+                          {isExecuting === opportunity.id ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                              Executing
+                            </>
+                          ) : (
+                            "Execute"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        <TabsContent value="analytics" className="space-y-4">
+        {/* Configuration Tab */}
+        <TabsContent value="configuration" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ProfitChart />
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="w-5 h-5" />
+                  Trading Parameters
+                </CardTitle>
+                <CardDescription>Configure your bot's trading behavior and risk management</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <Label>Minimum Profit Threshold: ${config.minProfitThreshold}</Label>
+                  <Slider
+                    value={[config.minProfitThreshold]}
+                    onValueChange={(value) => handleConfigChange("minProfitThreshold", value[0])}
+                    max={100}
+                    min={1}
+                    step={1}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">Minimum profit required to execute a trade</p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Maximum Slippage: {config.maxSlippage}%</Label>
+                  <Slider
+                    value={[config.maxSlippage]}
+                    onValueChange={(value) => handleConfigChange("maxSlippage", value[0])}
+                    max={5}
+                    min={0.1}
+                    step={0.1}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">Maximum acceptable slippage for trades</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="maxTradeSize">Maximum Trade Size ($)</Label>
+                  <Input
+                    id="maxTradeSize"
+                    type="number"
+                    value={config.maxTradeSize}
+                    onChange={(e) => handleConfigChange("maxTradeSize", Number(e.target.value))}
+                    min="100"
+                    max="10000"
+                  />
+                  <p className="text-xs text-muted-foreground">Maximum amount to trade in a single transaction</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="gasLimit">Gas Limit</Label>
+                  <Input
+                    id="gasLimit"
+                    type="number"
+                    value={config.gasLimit}
+                    onChange={(e) => handleConfigChange("gasLimit", Number(e.target.value))}
+                    min="100000"
+                    max="1000000"
+                  />
+                  <p className="text-xs text-muted-foreground">Gas limit for arbitrage transactions</p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="autoExecute"
+                    checked={config.autoExecute}
+                    onCheckedChange={(checked) => handleConfigChange("autoExecute", checked)}
+                  />
+                  <Label htmlFor="autoExecute">Enable automatic execution</Label>
+                </div>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Trading Statistics</CardTitle>
+                <CardTitle>Exchange & Token Settings</CardTitle>
+                <CardDescription>Select which exchanges and tokens to monitor</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 border rounded-lg">
-                    <div className="text-2xl font-bold text-green-500">{autoExecutionStats.successfulExecutions}</div>
-                    <div className="text-sm text-muted-foreground">Successful Trades</div>
-                  </div>
-
-                  <div className="text-center p-3 border rounded-lg">
-                    <div className="text-2xl font-bold text-red-500">{autoExecutionStats.failedExecutions}</div>
-                    <div className="text-sm text-muted-foreground">Failed Trades</div>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <Label>Enabled Exchanges</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["Uniswap V3", "SushiSwap", "Balancer", "Curve", "1inch", "Kyber"].map((exchange) => (
+                      <div key={exchange} className="flex items-center space-x-2">
+                        <Switch
+                          id={exchange}
+                          checked={config.enabledExchanges.includes(exchange.toLowerCase().replace(" ", ""))}
+                          onCheckedChange={(checked) => {
+                            const exchangeId = exchange.toLowerCase().replace(" ", "")
+                            if (checked) {
+                              handleConfigChange("enabledExchanges", [...config.enabledExchanges, exchangeId])
+                            } else {
+                              handleConfigChange(
+                                "enabledExchanges",
+                                config.enabledExchanges.filter((e) => e !== exchangeId),
+                              )
+                            }
+                          }}
+                        />
+                        <Label htmlFor={exchange} className="text-sm">
+                          {exchange}
+                        </Label>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <Separator />
-
                 <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Total Profit</span>
-                    <span className="font-medium">${autoExecutionStats.totalProfit.toFixed(2)}</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-sm">Avg Profit/Trade</span>
-                    <span className="font-medium">${performanceMetrics.avgProfitPerTrade}</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-sm">Profit/Hour</span>
-                    <span className="font-medium">${performanceMetrics.profitPerHour}</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-sm">Success Rate</span>
-                    <span className="font-medium">{performanceMetrics.successRate}%</span>
+                  <Label>Monitored Tokens</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["WETH", "USDC", "USDT", "WBTC", "DAI", "ARB"].map((token) => (
+                      <div key={token} className="flex items-center space-x-2">
+                        <Switch
+                          id={token}
+                          checked={config.enabledTokens.includes(token)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              handleConfigChange("enabledTokens", [...config.enabledTokens, token])
+                            } else {
+                              handleConfigChange(
+                                "enabledTokens",
+                                config.enabledTokens.filter((t) => t !== token),
+                              )
+                            }
+                          }}
+                        />
+                        <Label htmlFor={token} className="text-sm">
+                          {token}
+                        </Label>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </CardContent>
@@ -416,27 +385,93 @@ const TradingPanel: React.FC = () => {
           </div>
         </TabsContent>
 
-        <TabsContent value="mev-protection">
-          <MEVProtectionPanel />
-        </TabsContent>
+        {/* Manual Execution Tab */}
+        <TabsContent value="execution" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="w-5 h-5" />
+                Manual Trade Execution
+              </CardTitle>
+              <CardDescription>Execute arbitrage trades manually with custom parameters</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Token Pair</Label>
+                    <Select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select token pair" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weth-usdc">WETH/USDC</SelectItem>
+                        <SelectItem value="wbtc-usdt">WBTC/USDT</SelectItem>
+                        <SelectItem value="arb-usdc">ARB/USDC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-        <TabsContent value="gas-optimization">
-          <GasOptimizationPanel />
+                  <div className="space-y-2">
+                    <Label>Source Exchange</Label>
+                    <Select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select source exchange" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="uniswap">Uniswap V3</SelectItem>
+                        <SelectItem value="sushiswap">SushiSwap</SelectItem>
+                        <SelectItem value="balancer">Balancer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Target Exchange</Label>
+                    <Select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select target exchange" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="uniswap">Uniswap V3</SelectItem>
+                        <SelectItem value="sushiswap">SushiSwap</SelectItem>
+                        <SelectItem value="balancer">Balancer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Trade Amount ($)</Label>
+                    <Input type="number" placeholder="1000" min="100" max="10000" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Max Slippage (%)</Label>
+                    <Input type="number" placeholder="0.5" min="0.1" max="5" step="0.1" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Gas Price (Gwei)</Label>
+                    <Input type="number" placeholder="20" min="1" max="100" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Estimated profit: <span className="font-medium text-green-600">$12.45 (0.24%)</span>
+                </div>
+                <Button disabled={!isConnected} size="lg">
+                  <Zap className="w-4 h-4 mr-2" />
+                  Execute Trade
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Alerts */}
-      {botState.consecutiveFailures >= 3 && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Warning:</strong> {botState.consecutiveFailures} consecutive execution failures detected. Consider
-            reviewing your settings or stopping the bot.
-          </AlertDescription>
-        </Alert>
-      )}
     </div>
   )
 }
-
-export default TradingPanel
