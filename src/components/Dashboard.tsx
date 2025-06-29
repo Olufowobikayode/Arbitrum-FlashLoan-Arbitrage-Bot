@@ -1,583 +1,341 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Activity,
   DollarSign,
   TrendingUp,
   Zap,
-  Shield,
-  Clock,
-  Settings,
   Play,
-  Pause,
   Square,
-  RefreshCw,
-  Target,
-  BarChart3,
-  Gauge,
   AlertTriangle,
-  CheckCircle,
-  MessageSquare,
-  Timer,
+  Target,
+  Clock,
+  BarChart3,
 } from "lucide-react"
-import { useBot } from "../contexts/BotContext"
-import { useWeb3 } from "../contexts/Web3Context"
-import StatusCard from "./StatusCard"
-import OpportunityList from "./OpportunityList"
-import ProfitChart from "./ProfitChart"
-import QuickActions from "./QuickActions"
+import { useBot } from "@/src/contexts/BotContext"
+import { useWeb3 } from "@/src/contexts/Web3Context"
+import toast from "react-hot-toast"
 
-const Dashboard: React.FC = () => {
+export default function Dashboard() {
   const {
     botState,
     opportunities,
     isScanning,
     autoExecutionStats,
-    telegramService,
     startBot,
     stopBot,
     emergencyStop,
-    scanOpportunities,
-    updateBotState,
+    scanForOpportunities,
   } = useBot()
 
-  const { balance, gasPrice, isConnected } = useWeb3()
+  const { isConnected, account, balance } = useWeb3()
+  const [recentActivity, setRecentActivity] = useState<any[]>([])
 
-  // Performance optimization with memoization
-  const [scanInterval, setScanInterval] = useState(15) // seconds
-  const [lastScanTime, setLastScanTime] = useState<number>(0)
-  const [scanHistory, setScanHistory] = useState<Array<{ time: number; opportunities: number; duration: number }>>([])
-  const [performanceMetrics, setPerformanceMetrics] = useState({
-    avgScanTime: 0,
-    avgOpportunitiesPerScan: 0,
-    successRate: 0,
-    profitPerHour: 0,
-  })
-
-  // Real-time updates
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
-
-    if (botState.running && botState.autoTrade) {
-      interval = setInterval(() => {
-        const startTime = Date.now()
-        scanOpportunities().then(() => {
-          const duration = Date.now() - startTime
-          setLastScanTime(Date.now())
-
-          // Update scan history
-          setScanHistory((prev) => {
-            const newEntry = { time: Date.now(), opportunities: opportunities.length, duration }
-            const updated = [...prev, newEntry].slice(-50) // Keep last 50 scans
-            return updated
-          })
-        })
-      }, scanInterval * 1000)
-    }
-
-    return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [botState.running, botState.autoTrade, scanInterval, scanOpportunities, opportunities.length])
-
-  // Calculate performance metrics
-  const memoizedMetrics = useMemo(() => {
-    if (scanHistory.length === 0) return performanceMetrics
-
-    const avgScanTime = scanHistory.reduce((sum, scan) => sum + scan.duration, 0) / scanHistory.length
-    const avgOpportunitiesPerScan = scanHistory.reduce((sum, scan) => sum + scan.opportunities, 0) / scanHistory.length
-    const successRate =
-      autoExecutionStats.totalExecutions > 0
-        ? (autoExecutionStats.successfulExecutions / autoExecutionStats.totalExecutions) * 100
-        : 0
-
-    const uptimeHours = (Date.now() - botState.startTime) / (1000 * 60 * 60)
-    const profitPerHour = uptimeHours > 0 ? botState.totalProfit / uptimeHours : 0
-
-    return {
-      avgScanTime: Math.round(avgScanTime),
-      avgOpportunitiesPerScan: Math.round(avgOpportunitiesPerScan * 10) / 10,
-      successRate: Math.round(successRate * 10) / 10,
-      profitPerHour: Math.round(profitPerHour * 100) / 100,
-    }
-  }, [scanHistory, autoExecutionStats, botState.totalProfit, botState.startTime])
-
-  // Update performance metrics when memoized values change
-  useEffect(() => {
-    setPerformanceMetrics(memoizedMetrics)
-  }, [memoizedMetrics])
-
-  const formatUptime = useCallback((startTime: number) => {
-    const uptime = Date.now() - startTime
-    const hours = Math.floor(uptime / (1000 * 60 * 60))
-    const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60))
-    return `${hours}h ${minutes}m`
+    // Generate mock recent activity
+    const mockActivity = [
+      {
+        id: 1,
+        type: "trade",
+        description: "Executed WETH/USDC arbitrage",
+        profit: 125.5,
+        timestamp: new Date(Date.now() - 1000 * 60 * 5),
+        status: "success",
+      },
+      {
+        id: 2,
+        type: "opportunity",
+        description: "New WBTC/USDT opportunity detected",
+        profit: 89.25,
+        timestamp: new Date(Date.now() - 1000 * 60 * 15),
+        status: "pending",
+      },
+      {
+        id: 3,
+        type: "scan",
+        description: "Completed market scan",
+        profit: 0,
+        timestamp: new Date(Date.now() - 1000 * 60 * 30),
+        status: "info",
+      },
+    ]
+    setRecentActivity(mockActivity)
   }, [])
 
-  const getNextScanCountdown = useCallback(() => {
-    if (!botState.running || !lastScanTime) return scanInterval
-    const elapsed = Math.floor((Date.now() - lastScanTime) / 1000)
-    return Math.max(0, scanInterval - elapsed)
-  }, [botState.running, lastScanTime, scanInterval])
-
-  const [countdown, setCountdown] = useState(getNextScanCountdown())
-
-  // Update countdown every second
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCountdown(getNextScanCountdown())
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [getNextScanCountdown])
-
-  const handleScanIntervalChange = (value: string) => {
-    const newInterval = Number.parseInt(value)
-    setScanInterval(newInterval)
-    setLastScanTime(0) // Reset scan timer
-  }
-
-  const handleManualScan = async () => {
-    const startTime = Date.now()
-    await scanOpportunities()
-    const duration = Date.now() - startTime
-    setLastScanTime(Date.now())
-
-    setScanHistory((prev) => {
-      const newEntry = { time: Date.now(), opportunities: opportunities.length, duration }
-      return [...prev, newEntry].slice(-50)
-    })
-  }
-
-  const getTelegramStatus = () => {
-    if (!telegramService) return { status: "Disabled", color: "bg-gray-500" }
-
-    const connectionStatus = telegramService.getConnectionStatus()
-    switch (connectionStatus) {
-      case "connected":
-        return { status: "Connected", color: "bg-green-500" }
-      case "testing":
-        return { status: "Testing", color: "bg-yellow-500" }
-      default:
-        return { status: "Disconnected", color: "bg-red-500" }
+  const handleStartBot = async () => {
+    try {
+      await startBot()
+      toast.success("Bot started successfully!")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to start bot")
     }
   }
 
-  const telegramStatus = getTelegramStatus()
+  const handleStopBot = () => {
+    stopBot()
+    toast.success("Bot stopped")
+  }
+
+  const handleEmergencyStop = () => {
+    emergencyStop()
+    toast.error("Emergency stop activated!")
+  }
+
+  const handleScanNow = async () => {
+    try {
+      await scanForOpportunities()
+      toast.success("Manual scan completed")
+    } catch (error) {
+      toast.error("Scan failed")
+    }
+  }
+
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date()
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60))
+
+    if (diffInMinutes < 1) return "Just now"
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`
+    return `${Math.floor(diffInMinutes / 1440)}d ago`
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "success":
+        return "text-green-500"
+      case "error":
+        return "text-red-500"
+      case "pending":
+        return "text-yellow-500"
+      default:
+        return "text-blue-500"
+    }
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header with Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Arbitrage Dashboard</h1>
-          <p className="text-muted-foreground">Real-time monitoring and control center</p>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground">Monitor your arbitrage bot performance and manage operations</p>
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant={botState.running ? "default" : "secondary"} className="px-3 py-1">
-            <div className={`w-2 h-2 rounded-full mr-2 ${botState.running ? "bg-green-400" : "bg-gray-400"}`} />
-            {botState.status}
-          </Badge>
+          {!isConnected ? (
+            <Badge variant="destructive">Wallet Not Connected</Badge>
+          ) : (
+            <Badge variant="default">Connected</Badge>
+          )}
 
-          <Badge className={telegramStatus.color}>
-            <MessageSquare className="w-3 h-3 mr-1" />
-            {telegramStatus.status}
-          </Badge>
+          <Badge variant={botState.running ? "default" : "secondary"}>{botState.running ? "Running" : "Stopped"}</Badge>
         </div>
       </div>
 
-      {/* Quick Controls */}
+      {/* Quick Actions */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Quick Controls
+            <Zap className="w-5 h-5" />
+            Quick Actions
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              {!botState.running ? (
-                <Button onClick={startBot} disabled={!isConnected} className="flex items-center gap-2">
-                  <Play className="w-4 h-4" />
-                  Start Bot
-                </Button>
-              ) : (
-                <Button onClick={stopBot} variant="outline" className="flex items-center gap-2 bg-transparent">
-                  <Pause className="w-4 h-4" />
-                  Stop Bot
-                </Button>
-              )}
-
-              <Button onClick={emergencyStop} variant="destructive" className="flex items-center gap-2">
+          <div className="flex flex-wrap gap-2">
+            {!botState.running ? (
+              <Button onClick={handleStartBot} disabled={!isConnected} className="flex items-center gap-2">
+                <Play className="w-4 h-4" />
+                Start Bot
+              </Button>
+            ) : (
+              <Button onClick={handleStopBot} variant="outline" className="flex items-center gap-2 bg-transparent">
                 <Square className="w-4 h-4" />
-                Emergency Stop
+                Stop Bot
               </Button>
-            </div>
+            )}
 
-            <Separator orientation="vertical" className="h-8" />
+            <Button onClick={handleEmergencyStop} variant="destructive" className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Emergency Stop
+            </Button>
 
-            <div className="flex items-center gap-2">
-              <Label htmlFor="scanInterval" className="text-sm font-medium">
-                Scan Interval:
-              </Label>
-              <Select value={scanInterval.toString()} onValueChange={handleScanIntervalChange}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="5">5 seconds</SelectItem>
-                  <SelectItem value="10">10 seconds</SelectItem>
-                  <SelectItem value="15">15 seconds</SelectItem>
-                  <SelectItem value="30">30 seconds</SelectItem>
-                  <SelectItem value="60">1 minute</SelectItem>
-                  <SelectItem value="120">2 minutes</SelectItem>
-                  <SelectItem value="300">5 minutes</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleManualScan}
-                disabled={isScanning}
-                variant="outline"
-                className="flex items-center gap-2 bg-transparent"
-              >
-                <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
-                {isScanning ? "Scanning..." : "Manual Scan"}
-              </Button>
-
-              {botState.running && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Timer className="w-4 h-4" />
-                  Next scan: {countdown}s
-                </div>
-              )}
-            </div>
+            <Button
+              onClick={handleScanNow}
+              disabled={isScanning}
+              variant="outline"
+              className="flex items-center gap-2 bg-transparent"
+            >
+              <Target className="w-4 h-4" />
+              {isScanning ? "Scanning..." : "Scan Now"}
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Status Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-        <StatusCard
-          title="Bot Status"
-          value={botState.running ? "Running" : "Stopped"}
-          icon={<Activity />}
-          color={botState.running ? "green" : "red"}
-          subtitle={`Auto-trade: ${botState.autoTrade ? "ON" : "OFF"}`}
-        />
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">${botState.totalProfit.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">+12.5% from last week</p>
+          </CardContent>
+        </Card>
 
-        <StatusCard
-          title="Total Profit"
-          value={`$${botState.totalProfit.toFixed(2)}`}
-          icon={<DollarSign />}
-          color="blue"
-          subtitle="All-time earnings"
-        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{botState.successRate.toFixed(1)}%</div>
+            <Progress value={botState.successRate} className="mt-2" />
+          </CardContent>
+        </Card>
 
-        <StatusCard
-          title="Opportunities"
-          value={opportunities.length.toString()}
-          icon={<TrendingUp />}
-          color="purple"
-          subtitle={isScanning ? "Scanning..." : "Available now"}
-        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Opportunities</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{opportunities.length}</div>
+            <p className="text-xs text-muted-foreground">{isScanning ? "Scanning..." : "Last scan: 2m ago"}</p>
+          </CardContent>
+        </Card>
 
-        <StatusCard
-          title="Gas Price"
-          value={`${gasPrice} Gwei`}
-          icon={<Zap />}
-          color="orange"
-          subtitle="Current network"
-        />
-
-        <StatusCard
-          title="Success Rate"
-          value={`${performanceMetrics.successRate}%`}
-          icon={<Target />}
-          color="green"
-          subtitle={`${autoExecutionStats.successfulExecutions}/${autoExecutionStats.totalExecutions} trades`}
-        />
-
-        <StatusCard
-          title="Uptime"
-          value={formatUptime(botState.startTime)}
-          icon={<Clock />}
-          color="gray"
-          subtitle="Current session"
-        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Trades</CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{botState.totalTrades}</div>
+            <p className="text-xs text-muted-foreground">{autoExecutionStats.successfulTrades} successful</p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Performance Metrics */}
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Opportunities */}
+        <div className="lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="w-5 h-5" />
+                Current Opportunities
+              </CardTitle>
+              <CardDescription>Live arbitrage opportunities detected by the bot</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {opportunities.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Target className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No opportunities found</p>
+                  <p className="text-sm">The bot will automatically scan for new opportunities</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {opportunities.slice(0, 5).map((opportunity) => (
+                    <div key={opportunity.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium">
+                          {opportunity.tokenA}/{opportunity.tokenB}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {opportunity.exchangeA} → {opportunity.exchangeB}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-medium text-green-500">+${opportunity.profitUsd.toFixed(2)}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {(opportunity.confidence * 100).toFixed(0)}% confidence
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Recent Activity */}
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Recent Activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {recentActivity.map((activity) => (
+                  <div key={activity.id} className="flex items-start gap-3">
+                    <div className={`w-2 h-2 rounded-full mt-2 ${getStatusColor(activity.status)}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{activity.description}</p>
+                      {activity.profit > 0 && <p className="text-sm text-green-500">+${activity.profit.toFixed(2)}</p>}
+                      <p className="text-xs text-muted-foreground">{formatTimeAgo(activity.timestamp)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Wallet Info */}
+          {isConnected && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-sm">Wallet Info</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Address:</span>
+                    <span className="font-mono">
+                      {account?.slice(0, 6)}...{account?.slice(-4)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Balance:</span>
+                    <span>{balance} ETH</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Performance Chart Placeholder */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5" />
-            Performance Metrics
-          </CardTitle>
-          <CardDescription>Real-time system performance and efficiency metrics</CardDescription>
+          <CardTitle>Performance Overview</CardTitle>
+          <CardDescription>Bot performance metrics over time</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Avg Scan Time</Label>
-                <span className="text-sm text-muted-foreground">{performanceMetrics.avgScanTime}ms</span>
-              </div>
-              <Progress value={Math.min(100, performanceMetrics.avgScanTime / 50)} className="h-2" />
-              <p className="text-xs text-muted-foreground">Target: &lt;2000ms</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Opportunities/Scan</Label>
-                <span className="text-sm text-muted-foreground">{performanceMetrics.avgOpportunitiesPerScan}</span>
-              </div>
-              <Progress value={Math.min(100, performanceMetrics.avgOpportunitiesPerScan * 10)} className="h-2" />
-              <p className="text-xs text-muted-foreground">Higher is better</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Success Rate</Label>
-                <span className="text-sm text-muted-foreground">{performanceMetrics.successRate}%</span>
-              </div>
-              <Progress value={performanceMetrics.successRate} className="h-2" />
-              <p className="text-xs text-muted-foreground">Target: &gt;80%</p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Profit/Hour</Label>
-                <span className="text-sm text-muted-foreground">${performanceMetrics.profitPerHour}</span>
-              </div>
-              <Progress value={Math.min(100, performanceMetrics.profitPerHour / 10)} className="h-2" />
-              <p className="text-xs text-muted-foreground">Current rate</p>
+          <div className="h-64 flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Performance chart will be displayed here</p>
+              <p className="text-sm">Historical data and analytics</p>
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="opportunities">Opportunities</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="system">System</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <QuickActions />
-              <OpportunityList opportunities={opportunities.slice(0, 5)} />
-            </div>
-
-            <div className="space-y-4">
-              <ProfitChart />
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Gauge className="w-4 h-4" />
-                    System Status
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-sm">Wallet Balance</Label>
-                      <div className="text-lg font-semibold">{balance} ETH</div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm">Security Status</Label>
-                      <Badge variant={botState.securityStatus.includes("Normal") ? "default" : "destructive"}>
-                        {botState.securityStatus.includes("Normal") ? (
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                        ) : (
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                        )}
-                        {botState.securityStatus}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Flashloan Token</span>
-                      <Badge variant="outline">{botState.flashloanToken}</Badge>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Flashloan Amount</span>
-                      <span className="text-sm font-medium">${botState.flashloanAmount.toLocaleString()}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Provider</span>
-                      <Badge variant="outline">{botState.flashloanProvider}</Badge>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Last Scan</span>
-                      <span className="text-sm text-muted-foreground">{botState.lastScan || "Never"}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Consecutive Failures</span>
-                      <Badge variant={botState.consecutiveFailures > 3 ? "destructive" : "secondary"}>
-                        {botState.consecutiveFailures}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="opportunities" className="space-y-4">
-          <OpportunityList opportunities={opportunities} />
-        </TabsContent>
-
-        <TabsContent value="analytics" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ProfitChart />
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Scan History</CardTitle>
-                <CardDescription>Recent scanning performance</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {scanHistory
-                    .slice(-10)
-                    .reverse()
-                    .map((scan, index) => (
-                      <div key={index} className="flex justify-between items-center text-sm">
-                        <span>{new Date(scan.time).toLocaleTimeString()}</span>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">{scan.opportunities} ops</Badge>
-                          <span className="text-muted-foreground">{scan.duration}ms</span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="system" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>System Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm">Bot Version</Label>
-                    <div className="text-lg font-semibold">2.1.0</div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm">Network</Label>
-                    <div className="text-lg font-semibold">Arbitrum One</div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm">Simulation Engine</Label>
-                    <div className="text-lg font-semibold">Enhanced</div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm">MEV Protection</Label>
-                    <Badge variant="default">
-                      <Shield className="w-3 h-3 mr-1" />
-                      Active
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Configuration Status</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Auto-execution</span>
-                    <Badge variant={botState.autoExecuteEnabled ? "default" : "secondary"}>
-                      {botState.autoExecuteEnabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Simulation Mode</span>
-                    <Badge variant={botState.simulationEnabled ? "default" : "secondary"}>
-                      {botState.simulationEnabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Telegram Notifications</span>
-                    <Badge className={telegramStatus.color}>{telegramStatus.status}</Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Scan Interval</span>
-                    <Badge variant="outline">{scanInterval}s</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Alerts */}
-      {botState.consecutiveFailures >= 3 && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Warning:</strong> {botState.consecutiveFailures} consecutive execution failures detected. Consider
-            checking your configuration or stopping the bot.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {!isConnected && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Wallet not connected:</strong> Please connect your wallet to enable trading functionality.
-          </AlertDescription>
-        </Alert>
-      )}
     </div>
   )
 }
-
-export default Dashboard

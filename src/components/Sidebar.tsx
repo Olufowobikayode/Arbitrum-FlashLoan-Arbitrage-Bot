@@ -1,149 +1,159 @@
 "use client"
 
-import type React from "react"
-import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  BarChart3,
-  Bot,
-  Settings,
-  TrendingUp,
-  Wallet,
-  Bell,
-  Shield,
-  Zap,
-  Menu,
-  X,
-  Home,
-  Activity,
-  Target,
-  Layers,
-  AlertTriangle,
-} from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Bot, Settings, Wallet, Bell, Activity, Zap, Target, Home } from "lucide-react"
+import { useBot } from "@/src/contexts/BotContext"
 
 interface SidebarProps {
-  activeSection: string
-  onSectionChange: (section: string) => void
-  className?: string
+  currentView: string
+  onViewChange: (view: string) => void
+  collapsed: boolean
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, className }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false)
-  const [isMobileOpen, setIsMobileOpen] = useState(false)
+const menuItems = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: Home,
+    badge: null,
+  },
+  {
+    id: "trading",
+    label: "Trading Panel",
+    icon: Bot,
+    badge: "active",
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    icon: Activity,
+    badge: null,
+  },
+  {
+    id: "portfolio",
+    label: "Portfolio",
+    icon: Wallet,
+    badge: null,
+  },
+  {
+    id: "strategies",
+    label: "Strategies",
+    icon: Target,
+    badge: null,
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    icon: Bell,
+    badge: null,
+  },
+  {
+    id: "config",
+    label: "Configuration",
+    icon: Settings,
+    badge: null,
+  },
+]
 
-  const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed)
-  }
-
-  const toggleMobile = () => {
-    setIsMobileOpen(!isMobileOpen)
-  }
-
-  const handleSectionClick = (section: string) => {
-    onSectionChange(section)
-    // Close mobile menu when section is selected
-    if (isMobileOpen) {
-      setIsMobileOpen(false)
-    }
-  }
-
-  const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: Home },
-    { id: "trading", label: "Trading Panel", icon: Bot },
-    { id: "opportunities", label: "Opportunities", icon: Target },
-    { id: "portfolio", label: "Portfolio", icon: Wallet },
-    { id: "strategy", label: "Strategy Builder", icon: Layers },
-    { id: "monitoring", label: "Monitoring", icon: Activity },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "security", label: "Security", icon: Shield },
-    { id: "mev-protection", label: "MEV Protection", icon: AlertTriangle },
-    { id: "gas-optimization", label: "Gas Optimization", icon: Zap },
-    { id: "flashbots", label: "Flashbots", icon: TrendingUp },
-    { id: "analytics", label: "Analytics", icon: BarChart3 },
-    { id: "configuration", label: "Configuration", icon: Settings },
-  ]
+export default function Sidebar({ currentView, onViewChange, collapsed }: SidebarProps) {
+  const { botState, opportunities } = useBot()
 
   return (
-    <>
-      {/* Mobile Menu Button */}
-      <Button variant="ghost" size="icon" className="fixed top-4 left-4 z-50 md:hidden" onClick={toggleMobile}>
-        {isMobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-      </Button>
-
-      {/* Mobile Overlay */}
-      {isMobileOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMobileOpen(false)} />
+    <div
+      className={cn(
+        "fixed left-0 top-16 h-[calc(100vh-4rem)] bg-background border-r border-border transition-all duration-300 z-40",
+        collapsed ? "w-16" : "w-64",
       )}
-
-      {/* Sidebar */}
-      <div
-        className={cn(
-          "fixed left-0 top-0 z-40 h-full bg-background border-r transition-all duration-300",
-          isCollapsed ? "w-16" : "w-64",
-          isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-          className,
-        )}
-      >
-        <div className="flex h-full flex-col">
-          {/* Header */}
-          <div className="flex h-16 items-center justify-between px-4 border-b">
-            {!isCollapsed && (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-primary-foreground" />
-                </div>
-                <span className="font-semibold">ArbitrageBot</span>
-              </div>
-            )}
-            <Button variant="ghost" size="icon" onClick={toggleCollapse} className="hidden md:flex">
-              <Menu className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Navigation */}
-          <ScrollArea className="flex-1 px-2 py-4">
-            <nav className="space-y-1">
-              {menuItems.map((item) => {
-                const Icon = item.icon
-                const isActive = activeSection === item.id
-
-                return (
-                  <Button
-                    key={item.id}
-                    variant={isActive ? "secondary" : "ghost"}
-                    className={cn(
-                      "w-full justify-start gap-3 h-10",
-                      isCollapsed && "px-2",
-                      isActive && "bg-secondary text-secondary-foreground",
-                    )}
-                    onClick={() => handleSectionClick(item.id)}
-                  >
-                    <Icon className="h-4 w-4 flex-shrink-0" />
-                    {!isCollapsed && <span className="truncate">{item.label}</span>}
-                  </Button>
-                )
-              })}
-            </nav>
-          </ScrollArea>
-
-          {/* Footer */}
-          <div className="border-t p-4">
-            {!isCollapsed && (
-              <div className="text-xs text-muted-foreground">
-                <p>Version 2.1.0</p>
-                <p>© 2024 ArbitrageBot</p>
+    >
+      <div className="flex flex-col h-full">
+        {/* Logo/Brand */}
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Zap className="w-4 h-4 text-primary-foreground" />
+            </div>
+            {!collapsed && (
+              <div>
+                <h2 className="font-bold text-sm">ArbitrageBot</h2>
+                <p className="text-xs text-muted-foreground">v2.0</p>
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Main content spacer */}
-      <div className={cn("transition-all duration-300 md:block hidden", isCollapsed ? "w-16" : "w-64")} />
-    </>
+        {/* Bot Status */}
+        {!collapsed && (
+          <div className="p-4 border-b border-border">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Bot Status</span>
+                <Badge variant={botState.running ? "default" : "secondary"}>
+                  {botState.running ? "Running" : "Stopped"}
+                </Badge>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                <div>Profit: ${botState.totalProfit.toFixed(2)}</div>
+                <div>Opportunities: {opportunities.length}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation Menu */}
+        <nav className="flex-1 p-2">
+          <div className="space-y-1">
+            {menuItems.map((item) => {
+              const Icon = item.icon
+              const isActive = currentView === item.id
+
+              return (
+                <Button
+                  key={item.id}
+                  variant={isActive ? "default" : "ghost"}
+                  className={cn("w-full justify-start gap-2 h-10", collapsed && "justify-center px-2")}
+                  onClick={() => onViewChange(item.id)}
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {item.badge === "active" && botState.running && (
+                        <div className="w-2 h-2 bg-green-500 rounded-full" />
+                      )}
+                      {item.id === "notifications" && opportunities.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          {opportunities.length}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Button>
+              )
+            })}
+          </div>
+        </nav>
+
+        {/* Quick Stats */}
+        {!collapsed && (
+          <div className="p-4 border-t border-border">
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Quick Stats</h3>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-muted rounded p-2">
+                  <div className="text-muted-foreground">Success Rate</div>
+                  <div className="font-medium">{botState.successRate.toFixed(1)}%</div>
+                </div>
+                <div className="bg-muted rounded p-2">
+                  <div className="text-muted-foreground">Gas Used</div>
+                  <div className="font-medium">{botState.gasUsed.toFixed(3)} ETH</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
-
-export default Sidebar
