@@ -1,7 +1,7 @@
 "use client"
 
-import type React from "react"
-import { createContext, useContext, useState, useEffect, useCallback } from "react"
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
+import { useToast } from "@/hooks/use-toast"
 
 interface Web3ContextType {
   account: string | null
@@ -9,78 +9,115 @@ interface Web3ContextType {
   chainId: number | null
   balance: string
   isConnecting: boolean
-  error: string | null
-  connect: () => Promise<void>
-  disconnect: () => void
+  connectWallet: () => Promise<void>
+  disconnectWallet: () => void
   switchNetwork: (chainId: number) => Promise<void>
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined)
 
-export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface Web3ProviderProps {
+  children: ReactNode
+}
+
+export function Web3Provider({ children }: Web3ProviderProps) {
   const [account, setAccount] = useState<string | null>(null)
   const [chainId, setChainId] = useState<number | null>(null)
-  const [balance, setBalance] = useState<string>("0")
+  const [balance, setBalance] = useState("0.0")
   const [isConnecting, setIsConnecting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [isClient, setIsClient] = useState(false)
+  const { toast } = useToast()
 
-  // Set client flag after mount
+  const isConnected = Boolean(account)
+
   useEffect(() => {
     setIsClient(true)
   }, [])
 
-  const isConnected = Boolean(account && chainId)
-
-  // Check if wallet is already connected on mount
   useEffect(() => {
     if (isClient && typeof window !== "undefined" && window.ethereum) {
       checkConnection()
+      setupEventListeners()
     }
   }, [isClient])
 
   const checkConnection = async () => {
     try {
-      if (!window.ethereum) return
-
-      const accounts = await window.ethereum.request({ method: "eth_accounts" })
-      if (accounts.length > 0) {
-        setAccount(accounts[0])
-        const chainId = await window.ethereum.request({ method: "eth_chainId" })
-        setChainId(Number.parseInt(chainId, 16))
-        await updateBalance(accounts[0])
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({ method: "eth_accounts" })
+        if (accounts.length > 0) {
+          setAccount(accounts[0])
+          await updateChainId()
+          await updateBalance(accounts[0])
+        }
       }
     } catch (error) {
       console.error("Error checking connection:", error)
     }
   }
 
-  const updateBalance = async (address: string) => {
-    try {
-      if (!window.ethereum) return
-
-      const balance = await window.ethereum.request({
-        method: "eth_getBalance",
-        params: [address, "latest"],
-      })
-
-      // Convert from wei to ETH
-      const balanceInEth = (Number.parseInt(balance, 16) / Math.pow(10, 18)).toFixed(4)
-      setBalance(balanceInEth)
-    } catch (error) {
-      console.error("Error updating balance:", error)
-      setBalance("0")
+  const setupEventListeners = () => {
+    if (window.ethereum) {
+      window.ethereum.on("accountsChanged", handleAccountsChanged)
+      window.ethereum.on("chainChanged", handleChainChanged)
+      window.ethereum.on("disconnect", handleDisconnect)
     }
   }
 
-  const connect = useCallback(async () => {
-    if (!isClient || !window.ethereum) {
-      setError("MetaMask is not installed")
+  const handleAccountsChanged = (accounts: string[]) => {
+    if (accounts.length === 0) {
+      disconnectWallet()
+    } else {
+      setAccount(accounts[0])
+      updateBalance(accounts[0])
+    }
+  }
+
+  const handleChainChanged = (chainId: string) => {
+    setChainId(Number.parseInt(chainId, 16))
+  }
+
+  const handleDisconnect = () => {
+    disconnectWallet()
+  }
+
+  const updateChainId = async () => {
+    try {
+      if (window.ethereum) {
+        const chainId = await window.ethereum.request({ method: "eth_chainId" })
+        setChainId(Number.parseInt(chainId, 16))
+      }
+    } catch (error) {
+      console.error("Error getting chain ID:", error)
+    }
+  }
+
+  const updateBalance = async (address: string) => {
+    try {
+      if (window.ethereum) {
+        const balance = await window.ethereum.request({
+          method: "eth_getBalance",
+          params: [address, "latest"],
+        })
+        const balanceInEth = Number.parseInt(balance, 16) / Math.pow(10, 18)
+        setBalance(balanceInEth.toFixed(4))
+      }
+    } catch (error) {
+      console.error("Error getting balance:", error)
+    }
+  }
+
+  const connectWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      toast({
+        title: "MetaMask Not Found",
+        description: "Please install MetaMask to connect your wallet.",
+        variant: "destructive",
+      })
       return
     }
 
     setIsConnecting(true)
-    setError(null)
 
     try {
       const accounts = await window.ethereum.request({
@@ -89,118 +126,99 @@ export const Web3Provider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (accounts.length > 0) {
         setAccount(accounts[0])
-
-        const chainId = await window.ethereum.request({ method: "eth_chainId" })
-        const numericChainId = Number.parseInt(chainId, 16)
-        setChainId(numericChainId)
-
-        // Switch to Arbitrum if not already connected
-        if (numericChainId !== 42161) {
-          await switchNetwork(42161)
-        }
-
+        await updateChainId()
         await updateBalance(accounts[0])
+
+        toast({
+          title: "Wallet Connected",
+          description: `Connected to ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`,
+        })
       }
     } catch (error: any) {
-      console.error("Connection error:", error)
-      setError(error.message || "Failed to connect wallet")
+      console.error("Error connecting wallet:", error)
+      toast({
+        title: "Connection Failed",
+        description: error.message || "Failed to connect wallet",
+        variant: "destructive",
+      })
     } finally {
       setIsConnecting(false)
     }
-  }, [isClient])
+  }, [toast])
 
-  const disconnect = useCallback(() => {
+  const disconnectWallet = useCallback(() => {
     setAccount(null)
     setChainId(null)
-    setBalance("0")
-    setError(null)
-  }, [])
+    setBalance("0.0")
+    toast({
+      title: "Wallet Disconnected",
+      description: "Your wallet has been disconnected.",
+    })
+  }, [toast])
 
-  const switchNetwork = useCallback(async (targetChainId: number) => {
-    if (!window.ethereum) {
-      setError("MetaMask is not installed")
-      return
-    }
+  const switchNetwork = useCallback(
+    async (targetChainId: number) => {
+      if (!window.ethereum) return
 
-    try {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${targetChainId.toString(16)}` }],
-      })
-      setChainId(targetChainId)
-    } catch (error: any) {
-      if (error.code === 4902) {
-        // Chain not added to MetaMask
-        try {
-          await window.ethereum.request({
-            method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: `0x${targetChainId.toString(16)}`,
-                chainName: "Arbitrum One",
-                nativeCurrency: {
-                  name: "Ethereum",
-                  symbol: "ETH",
-                  decimals: 18,
-                },
-                rpcUrls: ["https://arb1.arbitrum.io/rpc"],
-                blockExplorerUrls: ["https://arbiscan.io/"],
-              },
-            ],
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+        })
+      } catch (error: any) {
+        if (error.code === 4902) {
+          toast({
+            title: "Network Not Added",
+            description: "Please add this network to MetaMask first.",
+            variant: "destructive",
           })
-          setChainId(targetChainId)
-        } catch (addError) {
-          console.error("Error adding network:", addError)
-          setError("Failed to add Arbitrum network")
+        } else {
+          toast({
+            title: "Network Switch Failed",
+            description: error.message || "Failed to switch network",
+            variant: "destructive",
+          })
         }
-      } else {
-        console.error("Error switching network:", error)
-        setError("Failed to switch network")
       }
-    }
-  }, [])
+    },
+    [toast],
+  )
 
-  // Listen for account changes
-  useEffect(() => {
-    if (!isClient || !window.ethereum) return
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        disconnect()
-      } else {
-        setAccount(accounts[0])
-        updateBalance(accounts[0])
-      }
-    }
-
-    const handleChainChanged = (chainId: string) => {
-      setChainId(Number.parseInt(chainId, 16))
-    }
-
-    window.ethereum.on("accountsChanged", handleAccountsChanged)
-    window.ethereum.on("chainChanged", handleChainChanged)
-
-    return () => {
-      if (window.ethereum.removeListener) {
-        window.ethereum.removeListener("accountsChanged", handleAccountsChanged)
-        window.ethereum.removeListener("chainChanged", handleChainChanged)
-      }
-    }
-  }, [isClient, disconnect])
-
-  const value: Web3ContextType = {
-    account,
-    isConnected,
-    chainId,
-    balance,
-    isConnecting,
-    error,
-    connect,
-    disconnect,
-    switchNetwork,
+  if (!isClient) {
+    return (
+      <Web3Context.Provider
+        value={{
+          account: null,
+          isConnected: false,
+          chainId: null,
+          balance: "0.0",
+          isConnecting: false,
+          connectWallet: async () => {},
+          disconnectWallet: () => {},
+          switchNetwork: async () => {},
+        }}
+      >
+        {children}
+      </Web3Context.Provider>
+    )
   }
 
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>
+  return (
+    <Web3Context.Provider
+      value={{
+        account,
+        isConnected,
+        chainId,
+        balance,
+        isConnecting,
+        connectWallet,
+        disconnectWallet,
+        switchNetwork,
+      }}
+    >
+      {children}
+    </Web3Context.Provider>
+  )
 }
 
 export const useWeb3 = () => {
@@ -211,7 +229,6 @@ export const useWeb3 = () => {
   return context
 }
 
-// Type declaration for window.ethereum
 declare global {
   interface Window {
     ethereum?: any

@@ -2,380 +2,381 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { CheckCircle, ArrowRight, ArrowLeft, Wallet, Settings, Target, Shield, AlertTriangle } from "lucide-react"
-import { useWeb3 } from "@/src/contexts/Web3Context"
+import { Separator } from "@/components/ui/separator"
+import { CheckCircle, Wallet, Settings, Zap, ArrowRight, ArrowLeft } from "lucide-react"
+import { useWeb3 } from "../contexts/Web3Context"
+import { useBot } from "../contexts/BotContext"
 
 interface SetupWizardProps {
   onComplete: () => void
 }
 
-const steps = [
-  {
-    id: 1,
-    title: "Welcome",
-    description: "Get started with ArbiBot",
-  },
-  {
-    id: 2,
-    title: "Connect Wallet",
-    description: "Connect your Web3 wallet",
-  },
-  {
-    id: 3,
-    title: "Basic Configuration",
-    description: "Set up trading parameters",
-  },
-  {
-    id: 4,
-    title: "Risk Management",
-    description: "Configure safety settings",
-  },
-  {
-    id: 5,
-    title: "Complete Setup",
-    description: "Review and finish",
-  },
-]
-
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
-  const [currentStep, setCurrentStep] = useState(1)
+  const [currentStep, setCurrentStep] = useState(0)
   const [config, setConfig] = useState({
-    minProfitThreshold: 10,
-    maxSlippage: 0.5,
-    riskLevel: "medium" as "low" | "medium" | "high",
-    autoExecute: false,
-    maxTradeSize: 1000,
+    minProfitThreshold: 0.5,
+    maxSlippage: 1.0,
+    gasLimit: 500000,
     enabledExchanges: ["uniswap", "sushiswap"],
-    enabledTokens: ["WETH", "USDC"],
+    enabledTokens: ["WETH", "USDC", "DAI"],
+    riskLevel: "medium" as "low" | "medium" | "high",
+    autoRebalance: true,
+    stopLoss: 5.0,
+    takeProfit: 10.0,
   })
 
-  const { connect, isConnected, account, chainId } = useWeb3()
+  const { connectWallet, isConnected, account, isConnecting } = useWeb3()
+  const { updateBotConfig } = useBot()
 
-  const nextStep = () => {
-    if (currentStep < steps.length) {
+  const steps = [
+    {
+      title: "Welcome",
+      description: "Let's set up your flashloan arbitrage bot",
+      icon: Zap,
+    },
+    {
+      title: "Connect Wallet",
+      description: "Connect your MetaMask wallet to get started",
+      icon: Wallet,
+    },
+    {
+      title: "Configure Bot",
+      description: "Set your trading parameters and risk preferences",
+      icon: Settings,
+    },
+    {
+      title: "Complete",
+      description: "Your bot is ready to start trading",
+      icon: CheckCircle,
+    },
+  ]
+
+  const exchanges = [
+    { id: "uniswap", name: "Uniswap V2/V3", enabled: true },
+    { id: "sushiswap", name: "SushiSwap", enabled: true },
+    { id: "balancer", name: "Balancer", enabled: false },
+    { id: "curve", name: "Curve", enabled: false },
+    { id: "1inch", name: "1inch", enabled: false },
+  ]
+
+  const tokens = [
+    { id: "WETH", name: "Wrapped Ethereum", enabled: true },
+    { id: "USDC", name: "USD Coin", enabled: true },
+    { id: "DAI", name: "Dai Stablecoin", enabled: true },
+    { id: "USDT", name: "Tether USD", enabled: false },
+    { id: "WBTC", name: "Wrapped Bitcoin", enabled: false },
+    { id: "UNI", name: "Uniswap Token", enabled: false },
+  ]
+
+  const handleNext = () => {
+    if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1)
     }
   }
 
-  const prevStep = () => {
-    if (currentStep > 1) {
+  const handlePrevious = () => {
+    if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
     }
   }
 
   const handleComplete = () => {
     // Save configuration
-    if (typeof window !== "undefined") {
-      localStorage.setItem("botConfig", JSON.stringify(config))
-    }
+    updateBotConfig({
+      minProfitThreshold: config.minProfitThreshold,
+      maxSlippage: config.maxSlippage,
+      riskLevel: config.riskLevel,
+    })
+
+    // Mark setup as complete
     onComplete()
   }
 
-  const canProceed = () => {
-    switch (currentStep) {
-      case 2:
-        return isConnected && chainId === 42161
-      case 3:
-        return config.minProfitThreshold > 0 && config.maxSlippage > 0
-      case 4:
-        return true
-      default:
-        return true
-    }
+  const toggleExchange = (exchangeId: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      enabledExchanges: prev.enabledExchanges.includes(exchangeId)
+        ? prev.enabledExchanges.filter((id) => id !== exchangeId)
+        : [...prev.enabledExchanges, exchangeId],
+    }))
+  }
+
+  const toggleToken = (tokenId: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      enabledTokens: prev.enabledTokens.includes(tokenId)
+        ? prev.enabledTokens.filter((id) => id !== tokenId)
+        : [...prev.enabledTokens, tokenId],
+    }))
   }
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case 1:
+      case 0:
         return (
           <div className="text-center space-y-6">
-            <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-              <Target className="w-10 h-10 text-primary" />
+            <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+              <Zap className="w-10 h-10 text-primary" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to ArbiBot</h2>
+              <h2 className="text-2xl font-bold mb-2">Welcome to FlashBot</h2>
               <p className="text-muted-foreground">
-                Your automated arbitrage trading bot for DeFi protocols. Let's get you set up in just a few steps.
+                Your advanced flashloan arbitrage trading bot. Let's get you set up in just a few steps.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="p-4 border rounded-lg">
-                <Shield className="w-8 h-8 text-blue-500 mb-2" />
-                <h3 className="font-medium">Secure</h3>
-                <p className="text-muted-foreground">Your keys, your funds</p>
+                <div className="font-medium mb-1">Automated Trading</div>
+                <div className="text-muted-foreground">24/7 arbitrage opportunity scanning</div>
               </div>
               <div className="p-4 border rounded-lg">
-                <Target className="w-8 h-8 text-green-500 mb-2" />
-                <h3 className="font-medium">Automated</h3>
-                <p className="text-muted-foreground">24/7 opportunity scanning</p>
+                <div className="font-medium mb-1">Risk Management</div>
+                <div className="text-muted-foreground">Built-in stop-loss and take-profit</div>
               </div>
               <div className="p-4 border rounded-lg">
-                <Settings className="w-8 h-8 text-purple-500 mb-2" />
-                <h3 className="font-medium">Configurable</h3>
-                <p className="text-muted-foreground">Customize to your needs</p>
+                <div className="font-medium mb-1">Multi-DEX Support</div>
+                <div className="text-muted-foreground">Trade across multiple exchanges</div>
               </div>
             </div>
           </div>
         )
 
-      case 2:
+      case 1:
         return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <Wallet className="w-16 h-16 text-primary mx-auto mb-4" />
+          <div className="text-center space-y-6">
+            <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+              <Wallet className="w-10 h-10 text-primary" />
+            </div>
+            <div>
               <h2 className="text-2xl font-bold mb-2">Connect Your Wallet</h2>
-              <p className="text-muted-foreground">
-                Connect your Web3 wallet to start trading. We recommend using MetaMask.
-              </p>
+              <p className="text-muted-foreground">Connect your MetaMask wallet to enable trading functionality.</p>
             </div>
 
-            {!isConnected ? (
+            {isConnected ? (
               <div className="space-y-4">
-                <Button onClick={connect} className="w-full" size="lg">
-                  <Wallet className="w-5 h-5 mr-2" />
-                  Connect MetaMask
-                </Button>
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Make sure you have MetaMask installed and are on the Arbitrum network.
-                  </AlertDescription>
-                </Alert>
+                <div className="p-4 border rounded-lg bg-green-50 dark:bg-green-950">
+                  <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400">
+                    <CheckCircle className="w-5 h-5" />
+                    <span className="font-medium">Wallet Connected</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-2 font-mono">
+                    {account?.slice(0, 6)}...{account?.slice(-4)}
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
-                <Alert>
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Wallet connected successfully! Account: {account?.slice(0, 6)}...{account?.slice(-4)}
-                  </AlertDescription>
-                </Alert>
-
-                {chainId !== 42161 && (
-                  <Alert>
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>Please switch to the Arbitrum network to continue.</AlertDescription>
-                  </Alert>
-                )}
+                <Button onClick={connectWallet} disabled={isConnecting} size="lg" className="w-full">
+                  <Wallet className="w-4 h-4 mr-2" />
+                  {isConnecting ? "Connecting..." : "Connect MetaMask"}
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  Don't have MetaMask?{" "}
+                  <a
+                    href="https://metamask.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    Install it here
+                  </a>
+                </p>
               </div>
             )}
           </div>
         )
 
+      case 2:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold mb-2">Configure Your Bot</h2>
+              <p className="text-muted-foreground">Set your trading parameters and risk preferences.</p>
+            </div>
+
+            <div className="grid gap-6">
+              {/* Trading Parameters */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Trading Parameters</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Minimum Profit Threshold (%)</Label>
+                    <div className="px-3">
+                      <Slider
+                        value={[config.minProfitThreshold]}
+                        onValueChange={([value]) => setConfig((prev) => ({ ...prev, minProfitThreshold: value }))}
+                        max={5}
+                        min={0.1}
+                        step={0.1}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-sm text-muted-foreground mt-1">
+                        <span>0.1%</span>
+                        <span className="font-medium">{config.minProfitThreshold}%</span>
+                        <span>5%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Maximum Slippage (%)</Label>
+                    <div className="px-3">
+                      <Slider
+                        value={[config.maxSlippage]}
+                        onValueChange={([value]) => setConfig((prev) => ({ ...prev, maxSlippage: value }))}
+                        max={5}
+                        min={0.1}
+                        step={0.1}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-sm text-muted-foreground mt-1">
+                        <span>0.1%</span>
+                        <span className="font-medium">{config.maxSlippage}%</span>
+                        <span>5%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Risk Level</Label>
+                    <div className="flex gap-2">
+                      {["low", "medium", "high"].map((level) => (
+                        <Button
+                          key={level}
+                          variant={config.riskLevel === level ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setConfig((prev) => ({ ...prev, riskLevel: level as any }))}
+                          className="flex-1 capitalize"
+                        >
+                          {level}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Stop Loss (%)</Label>
+                    <Input
+                      type="number"
+                      value={config.stopLoss}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, stopLoss: Number.parseFloat(e.target.value) || 0 }))
+                      }
+                      min="0"
+                      max="50"
+                      step="0.5"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Take Profit (%)</Label>
+                    <Input
+                      type="number"
+                      value={config.takeProfit}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, takeProfit: Number.parseFloat(e.target.value) || 0 }))
+                      }
+                      min="0"
+                      max="100"
+                      step="0.5"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Exchange Selection */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Supported Exchanges</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {exchanges.map((exchange) => (
+                    <div
+                      key={exchange.id}
+                      className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleExchange(exchange.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="font-medium">{exchange.name}</div>
+                        {!exchange.enabled && <Badge variant="secondary">Coming Soon</Badge>}
+                      </div>
+                      <Switch checked={config.enabledExchanges.includes(exchange.id)} disabled={!exchange.enabled} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Token Selection */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Supported Tokens</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {tokens.map((token) => (
+                    <div
+                      key={token.id}
+                      className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleToken(token.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="font-medium">{token.id}</div>
+                          <div className="text-sm text-muted-foreground">{token.name}</div>
+                        </div>
+                        {!token.enabled && <Badge variant="secondary">Coming Soon</Badge>}
+                      </div>
+                      <Switch checked={config.enabledTokens.includes(token.id)} disabled={!token.enabled} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+
       case 3:
         return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <Settings className="w-16 h-16 text-primary mx-auto mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Basic Configuration</h2>
-              <p className="text-muted-foreground">Set up your basic trading parameters.</p>
+          <div className="text-center space-y-6">
+            <div className="w-20 h-20 mx-auto bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-10 h-10 text-green-600 dark:text-green-400" />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="minProfit">Minimum Profit Threshold ($)</Label>
-                  <Input
-                    id="minProfit"
-                    type="number"
-                    value={config.minProfitThreshold}
-                    onChange={(e) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        minProfitThreshold: Number(e.target.value),
-                      }))
-                    }
-                    min="1"
-                    max="1000"
-                  />
-                  <p className="text-xs text-muted-foreground">Only execute trades with profit above this amount</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="maxSlippage">Maximum Slippage (%)</Label>
-                  <Input
-                    id="maxSlippage"
-                    type="number"
-                    value={config.maxSlippage}
-                    onChange={(e) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        maxSlippage: Number(e.target.value),
-                      }))
-                    }
-                    min="0.1"
-                    max="5"
-                    step="0.1"
-                  />
-                  <p className="text-xs text-muted-foreground">Maximum acceptable slippage for trades</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="maxTradeSize">Maximum Trade Size ($)</Label>
-                  <Input
-                    id="maxTradeSize"
-                    type="number"
-                    value={config.maxTradeSize}
-                    onChange={(e) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        maxTradeSize: Number(e.target.value),
-                      }))
-                    }
-                    min="100"
-                    max="10000"
-                  />
-                  <p className="text-xs text-muted-foreground">Maximum amount to trade in a single transaction</p>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="autoExecute"
-                    checked={config.autoExecute}
-                    onCheckedChange={(checked) =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        autoExecute: checked,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="autoExecute">Enable automatic trade execution</Label>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-
-      case 4:
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <Shield className="w-16 h-16 text-primary mx-auto mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Risk Management</h2>
-              <p className="text-muted-foreground">Configure your risk tolerance and safety settings.</p>
-            </div>
-
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="riskLevel">Risk Level</Label>
-                <Select
-                  value={config.riskLevel}
-                  onValueChange={(value: "low" | "medium" | "high") =>
-                    setConfig((prev) => ({ ...prev, riskLevel: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low Risk - Conservative trading</SelectItem>
-                    <SelectItem value="medium">Medium Risk - Balanced approach</SelectItem>
-                    <SelectItem value="high">High Risk - Aggressive trading</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>Important:</strong> Higher risk levels may yield higher profits but also increase potential
-                  losses. Only trade with funds you can afford to lose.
-                </AlertDescription>
-              </Alert>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Low Risk</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="text-sm space-y-1 text-muted-foreground">
-                      <li>• Higher profit thresholds</li>
-                      <li>• Conservative slippage limits</li>
-                      <li>• Fewer but safer trades</li>
-                    </ul>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">High Risk</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="text-sm space-y-1 text-muted-foreground">
-                      <li>• Lower profit thresholds</li>
-                      <li>• Higher slippage tolerance</li>
-                      <li>• More frequent trading</li>
-                    </ul>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </div>
-        )
-
-      case 5:
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <div>
               <h2 className="text-2xl font-bold mb-2">Setup Complete!</h2>
-              <p className="text-muted-foreground">
-                Your ArbiBot is ready to start trading. Review your settings below.
-              </p>
+              <p className="text-muted-foreground">Your flashloan arbitrage bot is ready to start trading.</p>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Configuration Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Wallet:</span>
-                    <p className="font-medium">
-                      {account?.slice(0, 6)}...{account?.slice(-4)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Network:</span>
-                    <p className="font-medium">Arbitrum One</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Min Profit:</span>
-                    <p className="font-medium">${config.minProfitThreshold}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Max Slippage:</span>
-                    <p className="font-medium">{config.maxSlippage}%</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Risk Level:</span>
-                    <p className="font-medium capitalize">{config.riskLevel}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Auto Execute:</span>
-                    <p className="font-medium">{config.autoExecute ? "Enabled" : "Disabled"}</p>
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+              <div className="p-4 border rounded-lg">
+                <div className="font-medium mb-2">Configuration Summary</div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  <div>Min Profit: {config.minProfitThreshold}%</div>
+                  <div>Max Slippage: {config.maxSlippage}%</div>
+                  <div>Risk Level: {config.riskLevel}</div>
+                  <div>Exchanges: {config.enabledExchanges.length}</div>
+                  <div>Tokens: {config.enabledTokens.length}</div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>
-                You can always modify these settings later in the Configuration panel.
-              </AlertDescription>
-            </Alert>
+              <div className="p-4 border rounded-lg">
+                <div className="font-medium mb-2">Next Steps</div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  <div>• Review your dashboard</div>
+                  <div>• Start the bot when ready</div>
+                  <div>• Monitor performance</div>
+                  <div>• Adjust settings as needed</div>
+                </div>
+              </div>
+            </div>
           </div>
         )
 
@@ -384,66 +385,67 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   }
 
+  const canProceed = () => {
+    switch (currentStep) {
+      case 1:
+        return isConnected
+      case 2:
+        return config.enabledExchanges.length > 0 && config.enabledTokens.length > 0
+      default:
+        return true
+    }
+  }
+
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Progress */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Setup Wizard</h1>
-          <span className="text-sm text-muted-foreground">
-            Step {currentStep} of {steps.length}
-          </span>
-        </div>
-        <Progress value={(currentStep / steps.length) * 100} className="mb-4" />
-        <div className="flex justify-between text-sm">
-          {steps.map((step) => (
-            <div
-              key={step.id}
-              className={`flex flex-col items-center ${
-                step.id <= currentStep ? "text-primary" : "text-muted-foreground"
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 ${
-                  step.id < currentStep
-                    ? "bg-primary text-primary-foreground"
-                    : step.id === currentStep
-                      ? "bg-primary/20 text-primary border-2 border-primary"
-                      : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {step.id < currentStep ? <CheckCircle className="w-4 h-4" /> : step.id}
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Card className="w-full max-w-4xl">
+        <CardHeader className="text-center">
+          <div className="flex items-center justify-center gap-4 mb-4">
+            {steps.map((step, index) => (
+              <div key={index} className="flex items-center">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
+                    index <= currentStep
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-muted-foreground/30"
+                  }`}
+                >
+                  {index < currentStep ? <CheckCircle className="w-5 h-5" /> : <step.icon className="w-5 h-5" />}
+                </div>
+                {index < steps.length - 1 && (
+                  <div className={`w-12 h-0.5 mx-2 ${index < currentStep ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                )}
               </div>
-              <span className="text-xs text-center">{step.title}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+            ))}
+          </div>
+          <Progress value={((currentStep + 1) / steps.length) * 100} className="w-full" />
+          <CardTitle className="mt-4">{steps[currentStep].title}</CardTitle>
+          <CardDescription>{steps[currentStep].description}</CardDescription>
+        </CardHeader>
 
-      {/* Content */}
-      <Card className="mb-8">
-        <CardContent className="p-8">{renderStepContent()}</CardContent>
+        <CardContent className="space-y-6">
+          {renderStepContent()}
+
+          <div className="flex justify-between pt-6">
+            <Button variant="outline" onClick={handlePrevious} disabled={currentStep === 0}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Previous
+            </Button>
+
+            {currentStep === steps.length - 1 ? (
+              <Button onClick={handleComplete} className="gap-2">
+                Complete Setup
+                <CheckCircle className="w-4 h-4" />
+              </Button>
+            ) : (
+              <Button onClick={handleNext} disabled={!canProceed()} className="gap-2">
+                Next
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </CardContent>
       </Card>
-
-      {/* Navigation */}
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={prevStep} disabled={currentStep === 1}>
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Previous
-        </Button>
-
-        {currentStep === steps.length ? (
-          <Button onClick={handleComplete} size="lg">
-            Complete Setup
-            <CheckCircle className="w-4 h-4 ml-2" />
-          </Button>
-        ) : (
-          <Button onClick={nextStep} disabled={!canProceed()} size="lg">
-            Next
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        )}
-      </div>
     </div>
   )
 }
