@@ -1,84 +1,51 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const { symbols } = await request.json()
+    if (!ALCHEMY_API_KEY) {
+      return NextResponse.json({ error: "API key not configured" }, { status: 500 })
+    }
 
-    const priceData = await fetchPriceData(symbols)
+    const { searchParams } = new URL(request.url)
+    const tokens = searchParams.get("tokens")?.split(",") || []
 
-    return NextResponse.json({
-      success: true,
-      data: priceData,
+    if (tokens.length === 0) {
+      return NextResponse.json({ error: "No tokens specified" }, { status: 400 })
+    }
+
+    // Mock price data
+    const prices: Record<string, number> = {}
+    tokens.forEach((token) => {
+      prices[token] = Math.random() * 1000 + 100
     })
+
+    return NextResponse.json({ prices, timestamp: Date.now() })
   } catch (error) {
-    console.error("Price API Error:", error)
-    return NextResponse.json({ error: "Failed to fetch prices" }, { status: 500 })
+    console.error("Prices API error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-async function fetchPriceData(symbols: string[]) {
-  const COINGECKO_API = "https://api.coingecko.com/api/v3"
-
-  const coinIds: { [key: string]: string } = {
-    WETH: "ethereum",
-    USDC: "usd-coin",
-    USDT: "tether",
-    DAI: "dai",
-    WBTC: "wrapped-bitcoin",
-    ARB: "arbitrum",
-    GMX: "gmx",
-  }
-
-  const validSymbols = symbols.filter((symbol) => coinIds[symbol])
-  const coinIdsList = validSymbols.map((symbol) => coinIds[symbol]).join(",")
-
-  if (!coinIdsList) {
-    return {}
-  }
-
+export async function POST(request: NextRequest) {
   try {
-    const headers: HeadersInit = {
-      Accept: "application/json",
-    }
+    const body = await request.json()
+    const { tokens, exchanges } = body
 
-    if (COINGECKO_API_KEY) {
-      headers["x-cg-demo-api-key"] = COINGECKO_API_KEY
-    }
+    // Mock real-time price updates
+    const priceUpdates = tokens.map((token: string) => ({
+      token,
+      price: Math.random() * 1000 + 100,
+      change24h: (Math.random() - 0.5) * 20,
+      volume24h: Math.random() * 1000000,
+      timestamp: Date.now(),
+    }))
 
-    const response = await fetch(
-      `${COINGECKO_API}/simple/price?ids=${coinIdsList}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&include_market_cap=true`,
-      { headers },
-    )
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const data = await response.json()
-
-    // Transform data back to symbol keys
-    const result: { [key: string]: any } = {}
-
-    for (const symbol of validSymbols) {
-      const coinId = coinIds[symbol]
-      if (data[coinId]) {
-        result[symbol] = {
-          symbol,
-          price: data[coinId].usd,
-          change24h: data[coinId].usd_24h_change || 0,
-          volume24h: data[coinId].usd_24h_vol || 0,
-          marketCap: data[coinId].usd_market_cap || 0,
-          timestamp: Date.now(),
-          source: "coingecko",
-        }
-      }
-    }
-
-    return result
+    return NextResponse.json({ priceUpdates })
   } catch (error) {
-    console.error("CoinGecko API error:", error)
-    return {}
+    console.error("Price updates error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

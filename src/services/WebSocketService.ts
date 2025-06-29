@@ -12,11 +12,15 @@ export interface WebSocketConfig {
 }
 
 export class WebSocketService {
+  private static instance: WebSocketService
   private connections: Map<string, WebSocket> = new Map()
   private messageHandlers: Map<string, ((message: WebSocketMessage) => void)[]> = new Map()
   private reconnectAttempts: Map<string, number> = new Map()
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
+  private ws: WebSocket | null = null
+  private maxReconnectAttempts = 5
+  private reconnectDelay = 1000
 
   // Public WebSocket endpoints only
   private readonly WS_ENDPOINTS = {
@@ -32,8 +36,15 @@ export class WebSocketService {
     heartbeatInterval: 30000,
   }
 
-  constructor() {
+  private constructor() {
     this.setupEventListeners()
+  }
+
+  static getInstance(): WebSocketService {
+    if (!WebSocketService.instance) {
+      WebSocketService.instance = new WebSocketService()
+    }
+    return WebSocketService.instance
   }
 
   private setupEventListeners() {
@@ -443,5 +454,80 @@ export class WebSocketService {
   cleanup() {
     this.stopConnections()
     this.messageHandlers.clear()
+  }
+
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Use a mock WebSocket connection since we don't have a real WebSocket server
+        // In a real implementation, this would connect to your WebSocket server
+        console.log("WebSocket connection simulated")
+
+        // Simulate connection success
+        setTimeout(() => {
+          this.reconnectAttempts = 0
+          this.simulateMessages()
+          resolve()
+        }, 1000)
+      } catch (error) {
+        console.error("WebSocket connection error:", error)
+        this.handleReconnect()
+        reject(error)
+      }
+    })
+  }
+
+  disconnect(): void {
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+    }
+    console.log("WebSocket disconnected")
+  }
+
+  send(message: WebSocketMessage): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message))
+    } else {
+      console.warn("WebSocket not connected, message not sent:", message)
+    }
+  }
+
+  private handleReconnect(): void {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++
+      setTimeout(() => {
+        console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+        this.connect()
+      }, this.reconnectDelay * this.reconnectAttempts)
+    } else {
+      console.error("Max reconnection attempts reached")
+    }
+  }
+
+  private simulateMessages(): void {
+    // Simulate receiving messages every few seconds
+    setInterval(() => {
+      const mockMessages = [
+        { type: "price_update", data: { token: "ETH", price: Math.random() * 1000 + 1000 } },
+        { type: "arbitrage_opportunity", data: { profit: Math.random() * 100, dex: "Uniswap" } },
+        { type: "gas_price_update", data: { gasPrice: Math.random() * 50 + 20 } },
+      ]
+
+      const randomMessage = mockMessages[Math.floor(Math.random() * mockMessages.length)]
+      const message: WebSocketMessage = {
+        ...randomMessage,
+        timestamp: Date.now(),
+      }
+
+      const handler = this.messageHandlers.get(message.type)
+      if (handler) {
+        handler(message.data)
+      }
+    }, 3000)
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN
   }
 }

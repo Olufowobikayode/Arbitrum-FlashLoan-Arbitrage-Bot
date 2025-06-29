@@ -3,6 +3,43 @@ import { type NextRequest, NextResponse } from "next/server"
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY
 
+export async function GET(request: NextRequest) {
+  try {
+    if (!ALCHEMY_API_KEY) {
+      return NextResponse.json({ error: "API key not configured" }, { status: 500 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const tokenA = searchParams.get("tokenA")
+    const tokenB = searchParams.get("tokenB")
+    const amount = searchParams.get("amount")
+
+    if (!tokenA || !tokenB || !amount) {
+      return NextResponse.json({ error: "Missing required parameters" }, { status: 400 })
+    }
+
+    // Mock arbitrage opportunity data
+    const opportunities = [
+      {
+        id: "1",
+        tokenA,
+        tokenB,
+        amount: Number.parseFloat(amount),
+        profit: Math.random() * 100,
+        dexA: "Uniswap V3",
+        dexB: "SushiSwap",
+        gasEstimate: Math.floor(Math.random() * 200000) + 100000,
+        timestamp: Date.now(),
+      },
+    ]
+
+    return NextResponse.json({ opportunities })
+  } catch (error) {
+    console.error("Arbitrage API error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { action, ...params } = await request.json()
@@ -14,6 +51,8 @@ export async function POST(request: NextRequest) {
         return await handleValidateOpportunity(params)
       case "getRealTimePrices":
         return await handleGetRealTimePrices(params)
+      case "executeOpportunity":
+        return await handleExecuteOpportunity(params)
       default:
         return NextResponse.json({ error: "Invalid action" }, { status: 400 })
     }
@@ -103,6 +142,27 @@ async function handleGetRealTimePrices({ tokenA, tokenB }) {
   } catch (error) {
     console.error("Error getting real-time prices:", error)
     return NextResponse.json({ error: "Failed to get prices" }, { status: 500 })
+  }
+}
+
+async function handleExecuteOpportunity({ opportunityId, amount }) {
+  try {
+    if (!ALCHEMY_API_KEY) {
+      return NextResponse.json({ error: "API key not configured" }, { status: 500 })
+    }
+
+    // Mock execution result
+    const result = {
+      success: true,
+      transactionHash: "0x" + Math.random().toString(16).substr(2, 64),
+      profit: Math.random() * 50,
+      gasUsed: Math.floor(Math.random() * 150000) + 50000,
+    }
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error("Arbitrage execution error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 

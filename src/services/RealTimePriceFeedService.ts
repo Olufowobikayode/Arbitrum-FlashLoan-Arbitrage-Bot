@@ -1,15 +1,9 @@
 export interface PriceData {
-  symbol: string
+  token: string
   price: number
   change24h: number
   volume24h: number
   timestamp: number
-  source: string
-  pair: string
-  liquidity: number
-  bid: number
-  ask: number
-  spread: number
 }
 
 export interface DEXPriceData {
@@ -37,13 +31,22 @@ export interface AggregatedPriceData {
   priceHistory: { timestamp: number; price: number }[]
 }
 
+export interface PriceUpdate {
+  prices: Record<string, number>
+  timestamp: number
+}
+
 export class RealTimePriceFeedService {
+  private static instance: RealTimePriceFeedService
   private priceData: Map<string, AggregatedPriceData> = new Map()
   private subscriptions: Map<string, ((data: AggregatedPriceData) => void)[]> = new Map()
   private updateIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
   private websocketConnections: Map<string, WebSocket> = new Map()
   private rateLimiters: Map<string, { lastCall: number; callCount: number }> = new Map()
+  private subscribers: ((data: PriceUpdate) => void)[] = []
+  private isConnected = false
+  private updateInterval: NodeJS.Timeout | null = null
 
   // Public API endpoints only
   private readonly API_ENDPOINTS = {
@@ -76,6 +79,13 @@ export class RealTimePriceFeedService {
 
   constructor() {
     this.initializeRateLimiters()
+  }
+
+  static getInstance(): RealTimePriceFeedService {
+    if (!RealTimePriceFeedService.instance) {
+      RealTimePriceFeedService.instance = new RealTimePriceFeedService()
+    }
+    return RealTimePriceFeedService.instance
   }
 
   private initializeRateLimiters() {
@@ -398,7 +408,7 @@ export class RealTimePriceFeedService {
     }
   }
 
-  subscribe(symbol: string, callback: (data: AggregatedPriceData) => void) {
+  subscribe(symbol: string, callback: (data: AggregatedPriceData) => void): void {
     if (!this.subscriptions.has(symbol)) {
       this.subscriptions.set(symbol, [])
     }
@@ -410,7 +420,7 @@ export class RealTimePriceFeedService {
     }
   }
 
-  unsubscribe(symbol: string, callback: (data: AggregatedPriceData) => void) {
+  unsubscribe(symbol: string, callback: (data: AggregatedPriceData) => void): void {
     const callbacks = this.subscriptions.get(symbol)
     if (callbacks) {
       const index = callbacks.indexOf(callback)
@@ -420,7 +430,7 @@ export class RealTimePriceFeedService {
     }
   }
 
-  private notifySubscribers(symbol: string, data: AggregatedPriceData) {
+  private notifySubscribers(symbol: string, data: AggregatedPriceData): void {
     const callbacks = this.subscriptions.get(symbol)
     if (callbacks) {
       callbacks.forEach((callback) => {
@@ -472,5 +482,62 @@ export class RealTimePriceFeedService {
     this.priceData.clear()
     this.subscriptions.clear()
     this.rateLimiters.clear()
+  }
+
+  async getPrices(tokens: string[]): Promise<PriceUpdate> {
+    try {
+      const response = await fetch(`/api/prices?tokens=${tokens.join(",")}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch prices")
+      }
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching prices:", error)
+      return { prices: {}, timestamp: Date.now() }
+    }
+  }
+
+  async getDetailedPrices(tokens: string[], exchanges: string[]): Promise<PriceData[]> {
+    try {
+      const response = await fetch("/api/prices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tokens, exchanges }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch detailed prices")
+      }
+
+      const data = await response.json()
+      return data.priceUpdates || []
+    } catch (error) {
+      console.error("Error fetching detailed prices:", error)
+      return []
+    }
+  }
+
+  private connect(): void {
+    this.isConnected = true
+    // Simulate real-time updates every 5 seconds
+    this.updateInterval = setInterval(async () => {
+      const tokens = ["ETH", "USDC", "WBTC", "DAI"]
+      const priceUpdate = await this.getPrices(tokens)
+      this.notifySubscribers(priceUpdate)
+    }, 5000)
+  }
+
+  private disconnect(): void {
+    this.isConnected = false
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval)
+      this.updateInterval = null
+    }
+  }
+
+  private notifySubscribers(data: PriceUpdate): void {
+    this.subscribers.forEach((callback) => callback(data))
   }
 }
