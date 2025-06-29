@@ -44,9 +44,11 @@ export class RealTimePriceFeedService {
   private isActive = false
   private websocketConnections: Map<string, WebSocket> = new Map()
   private rateLimiters: Map<string, { lastCall: number; callCount: number }> = new Map()
-  private subscribers: ((data: PriceUpdate) => void)[] = []
+  private subscribers: Map<string, Set<(data: any) => void>> = new Map()
   private isConnected = false
   private updateInterval: NodeJS.Timeout | null = null
+  private baseUrl = "/api"
+  private priceCache = new Map<string, any>()
 
   // Public API endpoints only
   private readonly API_ENDPOINTS = {
@@ -482,11 +484,14 @@ export class RealTimePriceFeedService {
     this.priceData.clear()
     this.subscriptions.clear()
     this.rateLimiters.clear()
+    this.subscribers.clear()
+    this.priceCache.clear()
+    console.log("Price feed service cleaned up")
   }
 
   async getPrices(tokens: string[]): Promise<PriceUpdate> {
     try {
-      const response = await fetch(`/api/prices?tokens=${tokens.join(",")}`)
+      const response = await fetch(`${this.baseUrl}/prices?tokens=${tokens.join(",")}`)
       if (!response.ok) {
         throw new Error("Failed to fetch prices")
       }
@@ -538,6 +543,36 @@ export class RealTimePriceFeedService {
   }
 
   private notifySubscribers(data: PriceUpdate): void {
-    this.subscribers.forEach((callback) => callback(data))
+    this.subscribers.forEach((callbacks) => {
+      callbacks.forEach((callback) => callback(data))
+    })
+  }
+
+  async fetchPrices(tokens: string[]) {
+    try {
+      const response = await fetch(`${this.baseUrl}/prices?tokens=${tokens.join(",")}`)
+      const data = await response.json()
+
+      if (data.success) {
+        // Update cache and notify subscribers
+        Object.entries(data.prices).forEach(([token, priceData]) => {
+          this.priceCache.set(token, priceData)
+          this.notifySubscribers(token, priceData)
+        })
+      }
+
+      return data.prices || {}
+    } catch (error) {
+      console.error("Error fetching prices:", error)
+      return {}
+    }
+  }
+
+  getPrice(token: string) {
+    return this.priceCache.get(token)
+  }
+
+  getAllPrices() {
+    return Object.fromEntries(this.priceCache)
   }
 }

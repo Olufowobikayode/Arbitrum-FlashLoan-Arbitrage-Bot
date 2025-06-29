@@ -14,7 +14,7 @@ export interface WebSocketConfig {
 export class WebSocketService {
   private static instance: WebSocketService
   private connections: Map<string, WebSocket> = new Map()
-  private messageHandlers: Map<string, ((message: WebSocketMessage) => void)[]> = new Map()
+  private subscribers: Map<string, Set<(message: any) => void>> = new Map()
   private reconnectAttempts: Map<string, number> = new Map()
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
@@ -265,7 +265,7 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      this.notifyHandlers("price_update", message)
+      this.notifySubscribers("price_update", message)
     } else if (data.e === "depthUpdate") {
       const message: WebSocketMessage = {
         type: "orderbook_update",
@@ -285,7 +285,7 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      this.notifyHandlers("orderbook_update", message)
+      this.notifySubscribers("orderbook_update", message)
     }
   }
 
@@ -305,7 +305,7 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      this.notifyHandlers("price_update", message)
+      this.notifySubscribers("price_update", message)
     } else if (data.type === "l2update") {
       const message: WebSocketMessage = {
         type: "orderbook_update",
@@ -322,7 +322,7 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      this.notifyHandlers("orderbook_update", message)
+      this.notifySubscribers("orderbook_update", message)
     }
   }
 
@@ -346,7 +346,7 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      this.notifyHandlers("dex_update", message)
+      this.notifySubscribers("dex_update", message)
     }
   }
 
@@ -408,33 +408,27 @@ export class WebSocketService {
     })
   }
 
-  subscribe(messageType: string, handler: (message: WebSocketMessage) => void) {
-    if (!this.messageHandlers.has(messageType)) {
-      this.messageHandlers.set(messageType, [])
+  subscribe(event: string, callback: (message: any) => void) {
+    if (!this.subscribers.has(event)) {
+      this.subscribers.set(event, new Set())
     }
-    this.messageHandlers.get(messageType)!.push(handler)
+    this.subscribers.get(event)!.add(callback)
   }
 
-  unsubscribe(messageType: string, handler: (message: WebSocketMessage) => void) {
-    const handlers = this.messageHandlers.get(messageType)
-    if (handlers) {
-      const index = handlers.indexOf(handler)
-      if (index > -1) {
-        handlers.splice(index, 1)
+  unsubscribe(event: string, callback: (message: any) => void) {
+    const eventSubscribers = this.subscribers.get(event)
+    if (eventSubscribers) {
+      eventSubscribers.delete(callback)
+      if (eventSubscribers.size === 0) {
+        this.subscribers.delete(event)
       }
     }
   }
 
-  private notifyHandlers(messageType: string, message: WebSocketMessage) {
-    const handlers = this.messageHandlers.get(messageType)
-    if (handlers) {
-      handlers.forEach((handler) => {
-        try {
-          handler(message)
-        } catch (error) {
-          console.error(`Handler error for ${messageType}:`, error)
-        }
-      })
+  private notifySubscribers(event: string, message: any) {
+    const eventSubscribers = this.subscribers.get(event)
+    if (eventSubscribers) {
+      eventSubscribers.forEach((callback) => callback(message))
     }
   }
 
@@ -453,7 +447,7 @@ export class WebSocketService {
 
   cleanup() {
     this.stopConnections()
-    this.messageHandlers.clear()
+    this.subscribers.clear()
   }
 
   connect(): Promise<void> {
@@ -520,9 +514,9 @@ export class WebSocketService {
         timestamp: Date.now(),
       }
 
-      const handler = this.messageHandlers.get(message.type)
+      const handler = this.subscribers.get(message.type)
       if (handler) {
-        handler(message.data)
+        handler.forEach((callback) => callback(message.data))
       }
     }, 3000)
   }

@@ -1,89 +1,79 @@
-export interface ArbitrageOpportunity {
-  id: string
-  tokenA: string
-  tokenB: string
-  amount: number
-  profit: number
-  dexA: string
-  dexB: string
-  gasEstimate: number
-  timestamp: number
-}
-
-export interface ExecutionResult {
-  success: boolean
-  transactionHash?: string
-  profit?: number
-  gasUsed?: number
-  error?: string
-}
-
 export class BotService {
-  private static instance: BotService
-  private isRunning = false
-  private opportunities: ArbitrageOpportunity[] = []
+  private baseUrl = "/api"
 
-  static getInstance(): BotService {
-    if (!BotService.instance) {
-      BotService.instance = new BotService()
-    }
-    return BotService.instance
-  }
-
-  async scanForOpportunities(tokenA: string, tokenB: string, amount: number): Promise<ArbitrageOpportunity[]> {
+  async fetchOpportunities(token = "USDC") {
     try {
-      const response = await fetch(`/api/arbitrage?tokenA=${tokenA}&tokenB=${tokenB}&amount=${amount}`)
-      if (!response.ok) {
-        throw new Error("Failed to fetch opportunities")
-      }
+      const response = await fetch(`${this.baseUrl}/arbitrage?token=${token}`)
       const data = await response.json()
-      this.opportunities = data.opportunities || []
-      return this.opportunities
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to fetch opportunities")
+      }
+
+      return data.opportunities || []
     } catch (error) {
-      console.error("Error scanning for opportunities:", error)
+      console.error("Error fetching opportunities:", error)
       return []
     }
   }
 
-  async executeArbitrage(opportunityId: string, amount: number): Promise<ExecutionResult> {
+  async executeArbitrage(params: {
+    token: string
+    amount: number
+    provider: string
+    opportunityId: string
+  }) {
     try {
-      const response = await fetch("/api/arbitrage", {
+      const response = await fetch(`${this.baseUrl}/arbitrage`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ opportunityId, amount }),
+        body: JSON.stringify(params),
       })
 
-      if (!response.ok) {
-        throw new Error("Failed to execute arbitrage")
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to execute arbitrage")
       }
 
-      return await response.json()
+      return data
     } catch (error) {
       console.error("Error executing arbitrage:", error)
+      throw error
+    }
+  }
+
+  async getGasPrice() {
+    try {
+      // Mock gas price for now
       return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+        standard: 20,
+        fast: 25,
+        instant: 30,
+      }
+    } catch (error) {
+      console.error("Error fetching gas price:", error)
+      return {
+        standard: 20,
+        fast: 25,
+        instant: 30,
       }
     }
   }
 
-  startBot(): void {
-    this.isRunning = true
-    console.log("Bot started")
-  }
+  async validateContract(address: string) {
+    try {
+      // Mock contract validation
+      if (!address || !address.startsWith("0x") || address.length !== 42) {
+        return { valid: false, error: "Invalid contract address format" }
+      }
 
-  stopBot(): void {
-    this.isRunning = false
-    console.log("Bot stopped")
-  }
-
-  isRunningBot(): boolean {
-    return this.isRunning
-  }
-
-  getOpportunities(): ArbitrageOpportunity[] {
-    return this.opportunities
+      return { valid: true, verified: true, name: "FlashloanArbitrageBot" }
+    } catch (error) {
+      console.error("Error validating contract:", error)
+      return { valid: false, error: "Failed to validate contract" }
+    }
   }
 }

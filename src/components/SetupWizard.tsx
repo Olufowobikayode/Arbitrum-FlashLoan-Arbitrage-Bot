@@ -34,6 +34,8 @@ interface SetupConfig {
   contractAddress: string
   reactAppRpc: string
   reportGas: boolean
+  alchemyApiKey: string
+  coingeckoApiKey: string
 }
 
 interface ValidationResult {
@@ -41,7 +43,11 @@ interface ValidationResult {
   message: string
 }
 
-export default function SetupWizard() {
+interface SetupWizardProps {
+  onComplete?: () => void
+}
+
+export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [config, setConfig] = useState<SetupConfig>({
     privateKey: "",
@@ -50,8 +56,12 @@ export default function SetupWizard() {
     contractAddress: "",
     reactAppRpc: "https://arbitrum-one.publicnode.com",
     reportGas: true,
+    alchemyApiKey: "",
+    coingeckoApiKey: "",
   })
   const [showPrivateKey, setShowPrivateKey] = useState(false)
+  const [showAlchemyKey, setShowAlchemyKey] = useState(false)
+  const [showCoingeckoKey, setShowCoingeckoKey] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
   const [deploymentResult, setDeploymentResult] = useState<string>("")
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
@@ -107,6 +117,12 @@ export default function SetupWizard() {
     const apiKeyValidation = validateApiKey(config.arbiscanApiKey)
     if (!apiKeyValidation.isValid) errors.arbiscanApiKey = apiKeyValidation.message
 
+    const alchemyValidation = validateApiKey(config.alchemyApiKey)
+    if (!alchemyValidation.isValid) errors.alchemyApiKey = alchemyValidation.message
+
+    const coingeckoValidation = validateApiKey(config.coingeckoApiKey)
+    if (!coingeckoValidation.isValid) errors.coingeckoApiKey = coingeckoValidation.message
+
     if (currentStep >= 3) {
       const contractValidation = validateContractAddress(config.contractAddress)
       if (!contractValidation.isValid) errors.contractAddress = contractValidation.message
@@ -138,12 +154,14 @@ PRIVATE_KEY=${config.privateKey}
 # 🌐 RPC ENDPOINTS (Required for blockchain connection)
 ARBITRUM_RPC=${config.arbitrumRpc}
 
-# 🔍 API KEYS (Optional but recommended)
+# 🔍 API KEYS (Server-side only - DO NOT prefix with NEXT_PUBLIC_)
+ALCHEMY_API_KEY=${config.alchemyApiKey}
+COINGECKO_API_KEY=${config.coingeckoApiKey}
 ARBISCAN_API_KEY=${config.arbiscanApiKey}
 
-# ⚛️ REACT APP ENVIRONMENT VARIABLES
-REACT_APP_CONTRACT_ADDRESS=${config.contractAddress}
-REACT_APP_ARBITRUM_RPC=${config.reactAppRpc}
+# ⚛️ REACT APP ENVIRONMENT VARIABLES (Client-safe)
+NEXT_PUBLIC_CONTRACT_ADDRESS=${config.contractAddress}
+NEXT_PUBLIC_ARBITRUM_RPC=${config.reactAppRpc}
 
 # 📊 DEVELOPMENT OPTIONS
 REPORT_GAS=${config.reportGas}
@@ -184,7 +202,7 @@ npm run deploy
 
 echo "✅ Deployment complete!"
 echo "📋 Next steps:"
-echo "1. Update REACT_APP_CONTRACT_ADDRESS in .env"
+echo "1. Update NEXT_PUBLIC_CONTRACT_ADDRESS in .env"
 echo "2. Fund your contract with initial capital"
 echo "3. Test with small amounts first"
 `
@@ -246,6 +264,24 @@ echo "3. Test with small amounts first"
         return !validationErrors.privateKey && !validationErrors.arbitrumRpc && !validationErrors.arbiscanApiKey
       default:
         return true
+    }
+  }
+
+  const handleCompleteSetup = () => {
+    // Save configuration to localStorage
+    localStorage.setItem("botConfig", JSON.stringify(config))
+    localStorage.setItem("setupComplete", "true")
+
+    toast({
+      title: "Setup Complete!",
+      description: "Redirecting to dashboard...",
+    })
+
+    // Call the onComplete callback to trigger redirect
+    if (onComplete) {
+      setTimeout(() => {
+        onComplete()
+      }, 1500)
     }
   }
 
@@ -316,23 +352,85 @@ echo "3. Test with small amounts first"
                 {validationErrors.arbitrumRpc && <p className="text-sm text-red-600">{validationErrors.arbitrumRpc}</p>}
               </div>
 
-              {/* Arbiscan API Key */}
-              <div className="space-y-2">
-                <Label htmlFor="arbiscanApiKey" className="flex items-center gap-2">
-                  <ExternalLink className="w-4 h-4" />
-                  Arbiscan API Key (Optional)
-                </Label>
-                <Input
-                  id="arbiscanApiKey"
-                  value={config.arbiscanApiKey}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, arbiscanApiKey: e.target.value }))}
-                  placeholder="Get from https://arbiscan.io/apis"
-                  className={validationErrors.arbiscanApiKey ? "border-red-500" : ""}
-                />
-                {validationErrors.arbiscanApiKey && (
-                  <p className="text-sm text-red-600">{validationErrors.arbiscanApiKey}</p>
-                )}
-                <p className="text-sm text-gray-600">Used for contract verification on Arbiscan</p>
+              {/* API Keys */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="alchemyApiKey" className="flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    Alchemy API Key (Recommended)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="alchemyApiKey"
+                      type={showAlchemyKey ? "text" : "password"}
+                      value={config.alchemyApiKey}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, alchemyApiKey: e.target.value }))}
+                      placeholder="Get from https://alchemy.com"
+                      className={validationErrors.alchemyApiKey ? "border-red-500" : ""}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
+                      onClick={() => setShowAlchemyKey(!showAlchemyKey)}
+                    >
+                      {showAlchemyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  {validationErrors.alchemyApiKey && (
+                    <p className="text-sm text-red-600">{validationErrors.alchemyApiKey}</p>
+                  )}
+                  <p className="text-sm text-gray-600">Used for enhanced blockchain data and faster transactions</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="coingeckoApiKey" className="flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    CoinGecko API Key (Optional)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="coingeckoApiKey"
+                      type={showCoingeckoKey ? "text" : "password"}
+                      value={config.coingeckoApiKey}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, coingeckoApiKey: e.target.value }))}
+                      placeholder="Get from https://coingecko.com/api"
+                      className={validationErrors.coingeckoApiKey ? "border-red-500" : ""}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
+                      onClick={() => setShowCoingeckoKey(!showCoingeckoKey)}
+                    >
+                      {showCoingeckoKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  {validationErrors.coingeckoApiKey && (
+                    <p className="text-sm text-red-600">{validationErrors.coingeckoApiKey}</p>
+                  )}
+                  <p className="text-sm text-gray-600">Used for real-time price data and market information</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="arbiscanApiKey" className="flex items-center gap-2">
+                    <ExternalLink className="w-4 h-4" />
+                    Arbiscan API Key (Optional)
+                  </Label>
+                  <Input
+                    id="arbiscanApiKey"
+                    value={config.arbiscanApiKey}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, arbiscanApiKey: e.target.value }))}
+                    placeholder="Get from https://arbiscan.io/apis"
+                    className={validationErrors.arbiscanApiKey ? "border-red-500" : ""}
+                  />
+                  {validationErrors.arbiscanApiKey && (
+                    <p className="text-sm text-red-600">{validationErrors.arbiscanApiKey}</p>
+                  )}
+                  <p className="text-sm text-gray-600">Used for contract verification on Arbiscan</p>
+                </div>
               </div>
             </div>
           </div>
@@ -504,6 +602,18 @@ echo "3. Test with small amounts first"
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Alchemy API:</span>
+                    <Badge variant={config.alchemyApiKey ? "default" : "outline"}>
+                      {config.alchemyApiKey ? "Configured" : "Optional"}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">CoinGecko API:</span>
+                    <Badge variant={config.coingeckoApiKey ? "default" : "outline"}>
+                      {config.coingeckoApiKey ? "Configured" : "Optional"}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Arbiscan API:</span>
                     <Badge variant={config.arbiscanApiKey ? "default" : "outline"}>
                       {config.arbiscanApiKey ? "Configured" : "Optional"}
@@ -549,7 +659,7 @@ echo "3. Test with small amounts first"
                   <li>
                     Run <code className="bg-gray-100 px-1 rounded">npm run deploy</code> to deploy your contract
                   </li>
-                  <li>Update REACT_APP_CONTRACT_ADDRESS with the deployed address</li>
+                  <li>Update NEXT_PUBLIC_CONTRACT_ADDRESS with the deployed address</li>
                   <li>Fund your contract with initial capital</li>
                   <li>Start trading through your React dashboard</li>
                 </ol>
@@ -627,17 +737,12 @@ echo "3. Test with small amounts first"
               </Button>
             ) : (
               <Button
-                onClick={() => {
-                  toast({
-                    title: "Setup Complete!",
-                    description: "Your bot is ready to deploy and trade",
-                  })
-                }}
+                onClick={handleCompleteSetup}
                 disabled={Object.keys(validationErrors).length > 0}
                 className="bg-green-600 hover:bg-green-700"
               >
                 <CheckCircle className="w-4 h-4 mr-2" />
-                Complete Setup
+                Complete Setup & Go to Dashboard
               </Button>
             )}
           </div>

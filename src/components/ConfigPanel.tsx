@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Zap, Shield, DollarSign, Gauge, Target, CheckCircle, Info } from "lucide-react"
+import {
+  Settings,
+  Zap,
+  Shield,
+  DollarSign,
+  Gauge,
+  Target,
+  CheckCircle,
+  Info,
+  Key,
+  Eye,
+  EyeOff,
+  Save,
+  RefreshCw,
+} from "lucide-react"
 import { useBot } from "../contexts/BotContext"
+import { useToast } from "@/hooks/use-toast"
 import TelegramConfigPanel from "./TelegramConfigPanel"
+
+interface BotConfig {
+  privateKey: string
+  arbitrumRpc: string
+  arbiscanApiKey: string
+  contractAddress: string
+  reactAppRpc: string
+  alchemyApiKey: string
+  coingeckoApiKey: string
+  reportGas: boolean
+}
 
 const ConfigPanel: React.FC = () => {
   const {
@@ -29,10 +55,35 @@ const ConfigPanel: React.FC = () => {
     telegramService,
   } = useBot()
 
+  const { toast } = useToast()
   const [tempGasPrice, setTempGasPrice] = useState(botState.currentGas)
   const [tempSlippage, setTempSlippage] = useState(1.5)
   const [isUpdatingGas, setIsUpdatingGas] = useState(false)
   const [isUpdatingSlippage, setIsUpdatingSlippage] = useState(false)
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const [config, setConfig] = useState<BotConfig>({
+    privateKey: "",
+    arbitrumRpc: "https://arbitrum-one.publicnode.com",
+    arbiscanApiKey: "",
+    contractAddress: "",
+    reactAppRpc: "https://arbitrum-one.publicnode.com",
+    alchemyApiKey: "",
+    coingeckoApiKey: "",
+    reportGas: true,
+  })
+
+  // Load saved configuration on component mount
+  useEffect(() => {
+    const savedConfig = localStorage.getItem("botConfig")
+    if (savedConfig) {
+      try {
+        const parsed = JSON.parse(savedConfig)
+        setConfig(parsed)
+      } catch (error) {
+        console.error("Error loading bot config:", error)
+      }
+    }
+  }, [])
 
   const handleGasUpdate = async () => {
     setIsUpdatingGas(true)
@@ -50,6 +101,44 @@ const ConfigPanel: React.FC = () => {
     } finally {
       setIsUpdatingSlippage(false)
     }
+  }
+
+  const handleSaveConfig = () => {
+    try {
+      localStorage.setItem("botConfig", JSON.stringify(config))
+      toast({
+        title: "Configuration Saved",
+        description: "Your configuration has been saved successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: "Failed to save configuration. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleResetConfig = () => {
+    const defaultConfig: BotConfig = {
+      privateKey: "",
+      arbitrumRpc: "https://arbitrum-one.publicnode.com",
+      arbiscanApiKey: "",
+      contractAddress: "",
+      reactAppRpc: "https://arbitrum-one.publicnode.com",
+      alchemyApiKey: "",
+      coingeckoApiKey: "",
+      reportGas: true,
+    }
+    setConfig(defaultConfig)
+    toast({
+      title: "Configuration Reset",
+      description: "Configuration has been reset to defaults.",
+    })
+  }
+
+  const toggleKeyVisibility = (key: string) => {
+    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   const getGasRecommendation = (gasPrice: number) => {
@@ -70,18 +159,203 @@ const ConfigPanel: React.FC = () => {
             <Settings className="w-5 h-5" />
             Bot Configuration
           </CardTitle>
-          <CardDescription>Configure trading parameters, security settings, and notifications</CardDescription>
+          <CardDescription>Configure trading parameters, security settings, and API keys</CardDescription>
         </CardHeader>
       </Card>
 
-      <Tabs defaultValue="trading" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+      <Tabs defaultValue="api-keys" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="api-keys">API Keys</TabsTrigger>
           <TabsTrigger value="trading">Trading</TabsTrigger>
           <TabsTrigger value="gas">Gas & Fees</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
+
+        {/* API Keys Configuration */}
+        <TabsContent value="api-keys" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="w-4 h-4" />
+                API Keys & Configuration
+              </CardTitle>
+              <CardDescription>
+                Update your API keys, contract address, and other sensitive configuration
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-6">
+                {/* Private Key */}
+                <div className="space-y-2">
+                  <Label htmlFor="privateKey" className="flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    Private Key
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="privateKey"
+                      type={showKeys.privateKey ? "text" : "password"}
+                      value={config.privateKey}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, privateKey: e.target.value }))}
+                      placeholder="Enter your wallet private key (without 0x)"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
+                      onClick={() => toggleKeyVisibility("privateKey")}
+                    >
+                      {showKeys.privateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Used for contract deployment and transaction signing</p>
+                </div>
+
+                {/* Contract Address */}
+                <div className="space-y-2">
+                  <Label htmlFor="contractAddress">Contract Address</Label>
+                  <Input
+                    id="contractAddress"
+                    value={config.contractAddress}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, contractAddress: e.target.value }))}
+                    placeholder="0x... (deployed contract address)"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Address of your deployed FlashloanArbitrageBot contract
+                  </p>
+                </div>
+
+                {/* RPC URLs */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="arbitrumRpc">Arbitrum RPC URL</Label>
+                    <Input
+                      id="arbitrumRpc"
+                      value={config.arbitrumRpc}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, arbitrumRpc: e.target.value }))}
+                      placeholder="https://arbitrum-one.publicnode.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reactAppRpc">React App RPC URL</Label>
+                    <Input
+                      id="reactAppRpc"
+                      value={config.reactAppRpc}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, reactAppRpc: e.target.value }))}
+                      placeholder="https://arbitrum-one.publicnode.com"
+                    />
+                  </div>
+                </div>
+
+                {/* API Keys */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="alchemyApiKey" className="flex items-center gap-2">
+                      <Key className="w-4 h-4" />
+                      Alchemy API Key
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="alchemyApiKey"
+                        type={showKeys.alchemyApiKey ? "text" : "password"}
+                        value={config.alchemyApiKey}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, alchemyApiKey: e.target.value }))}
+                        placeholder="Get from https://alchemy.com"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                        onClick={() => toggleKeyVisibility("alchemyApiKey")}
+                      >
+                        {showKeys.alchemyApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Enhanced blockchain data and faster transactions</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="coingeckoApiKey" className="flex items-center gap-2">
+                      <Key className="w-4 h-4" />
+                      CoinGecko API Key
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="coingeckoApiKey"
+                        type={showKeys.coingeckoApiKey ? "text" : "password"}
+                        value={config.coingeckoApiKey}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, coingeckoApiKey: e.target.value }))}
+                        placeholder="Get from https://coingecko.com/api"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                        onClick={() => toggleKeyVisibility("coingeckoApiKey")}
+                      >
+                        {showKeys.coingeckoApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Real-time price data and market information</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="arbiscanApiKey">Arbiscan API Key</Label>
+                    <Input
+                      id="arbiscanApiKey"
+                      value={config.arbiscanApiKey}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, arbiscanApiKey: e.target.value }))}
+                      placeholder="Get from https://arbiscan.io/apis"
+                    />
+                    <p className="text-sm text-muted-foreground">Contract verification on Arbiscan</p>
+                  </div>
+                </div>
+
+                {/* Gas Reporting */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Enable Gas Reporting</Label>
+                    <p className="text-sm text-muted-foreground">Show gas usage in development</p>
+                  </div>
+                  <Switch
+                    checked={config.reportGas}
+                    onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, reportGas: checked }))}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex gap-4">
+                <Button onClick={handleSaveConfig} className="flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  Save Configuration
+                </Button>
+                <Button
+                  onClick={handleResetConfig}
+                  variant="outline"
+                  className="flex items-center gap-2 bg-transparent"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Reset to Defaults
+                </Button>
+              </div>
+
+              <Alert>
+                <Shield className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Security Notice:</strong> API keys are stored locally in your browser. Never share these keys
+                  or commit them to version control.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Trading Configuration */}
         <TabsContent value="trading" className="space-y-4">

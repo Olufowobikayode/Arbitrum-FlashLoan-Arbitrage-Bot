@@ -1,7 +1,6 @@
 "use client"
+import App from "@/src/App"
 
-import App from "../src/App"
-
-export default function SyntheticV0PageForDeployment() {
+export default function Page() {
   return <App />
 }
