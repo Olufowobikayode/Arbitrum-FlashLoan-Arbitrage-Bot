@@ -14,7 +14,7 @@ export interface WebSocketConfig {
 export class WebSocketService {
   private static instance: WebSocketService
   private connections: Map<string, WebSocket> = new Map()
-  private subscribers: Map<string, Set<(message: any) => void>> = new Map()
+  private subscribers: Map<string, ((message: WebSocketMessage) => void)[]> = new Map()
   private reconnectAttempts: Map<string, number> = new Map()
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
@@ -73,7 +73,7 @@ export class WebSocketService {
     }
   }
 
-  async startConnections() {
+  async startConnections(): Promise<void> {
     if (this.isActive) return
 
     this.isActive = true
@@ -83,6 +83,9 @@ export class WebSocketService {
     await this.connectToBinance()
     await this.connectToCoinbase()
     await this.connectToDexScreener()
+
+    // Mock WebSocket connections for development
+    this.simulateWebSocketData()
 
     console.log("✅ WebSocket connections established")
   }
@@ -408,37 +411,72 @@ export class WebSocketService {
     })
   }
 
-  subscribe(event: string, callback: (message: any) => void) {
+  subscribe(event: string, callback: (message: WebSocketMessage) => void): () => void {
     if (!this.subscribers.has(event)) {
-      this.subscribers.set(event, new Set())
+      this.subscribers.set(event, [])
     }
-    this.subscribers.get(event)!.add(callback)
+
+    const subscribers = this.subscribers.get(event)!
+    subscribers.push(callback)
+
+    // Return unsubscribe function
+    return () => {
+      const index = subscribers.indexOf(callback)
+      if (index > -1) {
+        subscribers.splice(index, 1)
+      }
+    }
   }
 
-  unsubscribe(event: string, callback: (message: any) => void) {
+  unsubscribe(event: string, callback: (message: WebSocketMessage) => void) {
     const eventSubscribers = this.subscribers.get(event)
     if (eventSubscribers) {
-      eventSubscribers.delete(callback)
-      if (eventSubscribers.size === 0) {
+      const index = eventSubscribers.indexOf(callback)
+      if (index > -1) {
+        eventSubscribers.splice(index, 1)
+      }
+      if (eventSubscribers.length === 0) {
         this.subscribers.delete(event)
       }
     }
   }
 
-  private notifySubscribers(event: string, message: any) {
-    const eventSubscribers = this.subscribers.get(event)
-    if (eventSubscribers) {
-      eventSubscribers.forEach((callback) => callback(message))
+  private notifySubscribers(eventType: string, data: any) {
+    const subscribers = this.subscribers.get(eventType) || []
+    const message: WebSocketMessage = {
+      type: eventType,
+      data,
+      timestamp: Date.now(),
     }
+
+    subscribers.forEach((callback) => {
+      try {
+        callback(message)
+      } catch (error) {
+        console.error(`Error in WebSocket subscriber for ${eventType}:`, error)
+      }
+    })
   }
 
-  getConnectionStatus(): { [key: string]: { connected: boolean; reconnectAttempts: number } } {
-    const status: { [key: string]: { connected: boolean; reconnectAttempts: number } } = {}
+  getConnectionStatus(): Record<string, string> {
+    const status: Record<string, string> = {}
 
-    this.connections.forEach((ws, name) => {
-      status[name] = {
-        connected: ws.readyState === WebSocket.OPEN,
-        reconnectAttempts: this.reconnectAttempts.get(name) || 0,
+    this.connections.forEach((ws, key) => {
+      switch (ws.readyState) {
+        case WebSocket.CONNECTING:
+          status[key] = "connecting"
+          break
+        case WebSocket.OPEN:
+          status[key] = "connected"
+          break
+        case WebSocket.CLOSING:
+          status[key] = "closing"
+          break
+        case WebSocket.CLOSED:
+          status[key] = "closed"
+          break
+        default:
+          status[key] = "unknown"
       }
     })
 
@@ -446,82 +484,58 @@ export class WebSocketService {
   }
 
   cleanup() {
-    this.stopConnections()
-    this.subscribers.clear()
-  }
-
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Use a mock WebSocket connection since we don't have a real WebSocket server
-        // In a real implementation, this would connect to your WebSocket server
-        console.log("WebSocket connection simulated")
-
-        // Simulate connection success
-        setTimeout(() => {
-          this.reconnectAttempts = 0
-          this.simulateMessages()
-          resolve()
-        }, 1000)
-      } catch (error) {
-        console.error("WebSocket connection error:", error)
-        this.handleReconnect()
-        reject(error)
+    // Close all WebSocket connections
+    this.connections.forEach((ws, key) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close()
       }
     })
+
+    this.connections.clear()
+    this.subscribers.clear()
+    this.reconnectAttempts.clear()
   }
 
-  disconnect(): void {
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
-    console.log("WebSocket disconnected")
-  }
-
-  send(message: WebSocketMessage): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
-    } else {
-      console.warn("WebSocket not connected, message not sent:", message)
-    }
-  }
-
-  private handleReconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++
-      setTimeout(() => {
-        console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-        this.connect()
-      }, this.reconnectDelay * this.reconnectAttempts)
-    } else {
-      console.error("Max reconnection attempts reached")
-    }
-  }
-
-  private simulateMessages(): void {
-    // Simulate receiving messages every few seconds
+  private simulateWebSocketData(): void {
+    // Simulate price updates
     setInterval(() => {
-      const mockMessages = [
-        { type: "price_update", data: { token: "ETH", price: Math.random() * 1000 + 1000 } },
-        { type: "arbitrage_opportunity", data: { profit: Math.random() * 100, dex: "Uniswap" } },
-        { type: "gas_price_update", data: { gasPrice: Math.random() * 50 + 20 } },
-      ]
-
-      const randomMessage = mockMessages[Math.floor(Math.random() * mockMessages.length)]
-      const message: WebSocketMessage = {
-        ...randomMessage,
+      this.notifySubscribers("price_update", {
+        symbol: "WETH",
+        price: 2450 + Math.random() * 10,
+        exchange: "Uniswap V3",
         timestamp: Date.now(),
-      }
-
-      const handler = this.subscribers.get(message.type)
-      if (handler) {
-        handler.forEach((callback) => callback(message.data))
-      }
+      })
     }, 3000)
-  }
 
-  isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN
+    // Simulate DEX updates
+    setInterval(() => {
+      this.notifySubscribers("dex_update", {
+        exchange: "SushiSwap",
+        pair: "WETH/USDC",
+        liquidity: 1000000 + Math.random() * 100000,
+        timestamp: Date.now(),
+      })
+    }, 5000)
+
+    // Simulate new blocks
+    setInterval(() => {
+      this.notifySubscribers("new_block", {
+        blockNumber: Math.floor(Math.random() * 1000000) + 18000000,
+        gasPrice: 20 + Math.random() * 30,
+        timestamp: Date.now(),
+      })
+    }, 12000) // ~12 seconds for Ethereum blocks
+
+    // Simulate pending transactions
+    setInterval(() => {
+      this.notifySubscribers("pending_transaction", {
+        txHash: "0x" + Math.random().toString(16).substr(2, 64),
+        from: "0x" + Math.random().toString(16).substr(2, 40),
+        to: "0x" + Math.random().toString(16).substr(2, 40),
+        value: Math.random() * 10,
+        gasPrice: 25 + Math.random() * 20,
+        timestamp: Date.now(),
+      })
+    }, 8000)
   }
 }

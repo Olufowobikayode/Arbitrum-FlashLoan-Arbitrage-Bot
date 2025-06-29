@@ -1,9 +1,10 @@
 export interface PriceData {
-  token: string
+  symbol: string
   price: number
   change24h: number
   volume24h: number
   timestamp: number
+  exchanges: Record<string, number>
 }
 
 export interface DEXPriceData {
@@ -38,17 +39,17 @@ export interface PriceUpdate {
 
 export class RealTimePriceFeedService {
   private static instance: RealTimePriceFeedService
-  private priceData: Map<string, AggregatedPriceData> = new Map()
+  private priceData: Map<string, PriceData> = new Map()
   private subscriptions: Map<string, ((data: AggregatedPriceData) => void)[]> = new Map()
   private updateIntervals: Map<string, NodeJS.Timeout> = new Map()
   private isActive = false
   private websocketConnections: Map<string, WebSocket> = new Map()
   private rateLimiters: Map<string, { lastCall: number; callCount: number }> = new Map()
-  private subscribers: Map<string, Set<(data: any) => void>> = new Map()
+  private subscribers: Map<string, ((data: PriceData) => void)[]> = new Map()
   private isConnected = false
   private updateInterval: NodeJS.Timeout | null = null
   private baseUrl = "/api"
-  private priceCache = new Map<string, any>()
+  private priceCache: Map<string, any> = new Map()
 
   // Public API endpoints only
   private readonly API_ENDPOINTS = {
@@ -118,22 +119,24 @@ export class RealTimePriceFeedService {
     return true
   }
 
-  async startPriceFeeds(symbols: string[] = ["WETH", "USDC", "USDT", "DAI", "WBTC", "ARB"]) {
+  async startPriceFeeds(tokens: string[] = ["WETH", "USDC", "USDT", "DAI", "WBTC", "ARB"]): Promise<void> {
     if (this.isActive) return
 
     this.isActive = true
-    console.log("🚀 Starting real-time price feeds for:", symbols)
+    console.log("📊 Starting price feeds for:", tokens)
 
-    // Initialize price data for each symbol
-    for (const symbol of symbols) {
-      await this.initializePriceData(symbol)
-      this.startSymbolUpdates(symbol)
+    // Initialize price data for each token
+    for (const token of tokens) {
+      this.subscribers.set(token, [])
     }
 
-    // Setup WebSocket connections
-    await this.setupWebSocketConnections(symbols)
+    // Start periodic price updates
+    this.updateInterval = setInterval(() => {
+      this.updatePrices(tokens)
+    }, 2000) // Update every 2 seconds
 
-    console.log("✅ Real-time price feeds started")
+    // Initial price fetch
+    await this.updatePrices(tokens)
   }
 
   stopPriceFeeds() {
@@ -153,17 +156,13 @@ export class RealTimePriceFeedService {
   }
 
   private async initializePriceData(symbol: string) {
-    const initialData: AggregatedPriceData = {
+    const initialData: PriceData = {
       symbol,
-      averagePrice: 0,
-      bestBid: 0,
-      bestAsk: 0,
-      spread: 0,
-      totalLiquidity: 0,
-      totalVolume24h: 0,
-      pricesByDEX: [],
-      lastUpdate: Date.now(),
-      priceHistory: [],
+      price: 0,
+      change24h: 0,
+      volume24h: 0,
+      timestamp: Date.now(),
+      exchanges: {},
     }
 
     this.priceData.set(symbol, initialData)
@@ -410,20 +409,25 @@ export class RealTimePriceFeedService {
     }
   }
 
-  subscribe(symbol: string, callback: (data: AggregatedPriceData) => void): void {
-    if (!this.subscriptions.has(symbol)) {
-      this.subscriptions.set(symbol, [])
+  subscribe(symbol: string, callback: (data: PriceData) => void): () => void {
+    if (!this.subscribers.has(symbol)) {
+      this.subscribers.set(symbol, [])
     }
-    this.subscriptions.get(symbol)!.push(callback)
 
-    const currentData = this.priceData.get(symbol)
-    if (currentData) {
-      callback(currentData)
+    const subscribers = this.subscribers.get(symbol)!
+    subscribers.push(callback)
+
+    // Return unsubscribe function
+    return () => {
+      const index = subscribers.indexOf(callback)
+      if (index > -1) {
+        subscribers.splice(index, 1)
+      }
     }
   }
 
-  unsubscribe(symbol: string, callback: (data: AggregatedPriceData) => void): void {
-    const callbacks = this.subscriptions.get(symbol)
+  unsubscribe(symbol: string, callback: (data: PriceData) => void): void {
+    const callbacks = this.subscribers.get(symbol)
     if (callbacks) {
       const index = callbacks.indexOf(callback)
       if (index > -1) {
@@ -432,8 +436,8 @@ export class RealTimePriceFeedService {
     }
   }
 
-  private notifySubscribers(symbol: string, data: AggregatedPriceData): void {
-    const callbacks = this.subscriptions.get(symbol)
+  private notifySubscribers(symbol: string, data: PriceData): void {
+    const callbacks = this.subscribers.get(symbol)
     if (callbacks) {
       callbacks.forEach((callback) => {
         try {
@@ -445,11 +449,11 @@ export class RealTimePriceFeedService {
     }
   }
 
-  getPriceData(symbol: string): AggregatedPriceData | null {
+  getPrice(symbol: string): PriceData | null {
     return this.priceData.get(symbol) || null
   }
 
-  getAllPriceData(): Map<string, AggregatedPriceData> {
+  getAllPriceData(): Map<string, PriceData> {
     return new Map(this.priceData)
   }
 
@@ -568,11 +572,35 @@ export class RealTimePriceFeedService {
     }
   }
 
-  getPrice(token: string) {
-    return this.priceCache.get(token)
-  }
-
   getAllPrices() {
     return Object.fromEntries(this.priceCache)
+  }
+
+  private async updatePrices(tokens: string[]): Promise<void> {
+    try {
+      const response = await fetch(`/api/prices?tokens=${tokens.join(",")}`)
+      const data = await response.json()
+
+      if (data.success) {
+        for (const [symbol, priceInfo] of Object.entries(data.data) as [string, any][]) {
+          const priceData: PriceData = {
+            symbol,
+            price: priceInfo.price,
+            change24h: priceInfo.change24h,
+            volume24h: priceInfo.volume24h,
+            timestamp: Date.now(),
+            exchanges: priceInfo.exchanges,
+          }
+
+          this.priceData.set(symbol, priceData)
+
+          // Notify subscribers
+          const subscribers = this.subscribers.get(symbol) || []
+          subscribers.forEach((callback) => callback(priceData))
+        }
+      }
+    } catch (error) {
+      console.error("Error updating prices:", error)
+    }
   }
 }

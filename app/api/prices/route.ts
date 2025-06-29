@@ -1,77 +1,72 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+// Mock price data for development
+const mockPriceData = {
+  WETH: {
+    price: 2451.75,
+    change24h: 2.34,
+    volume24h: 1250000000,
+    marketCap: 295000000000,
+    exchanges: {
+      "Uniswap V3": 2451.75,
+      SushiSwap: 2449.2,
+      Curve: 2452.1,
+      Balancer: 2450.85,
+    },
+  },
+  USDC: {
+    price: 1.0002,
+    change24h: 0.01,
+    volume24h: 2100000000,
+    marketCap: 32000000000,
+    exchanges: {
+      "Uniswap V3": 1.0002,
+      SushiSwap: 1.0001,
+      Curve: 1.0003,
+      Balancer: 1.0001,
+    },
+  },
+  WBTC: {
+    price: 43225.5,
+    change24h: -1.25,
+    volume24h: 890000000,
+    marketCap: 675000000000,
+    exchanges: {
+      "Uniswap V3": 43225.5,
+      SushiSwap: 43220.75,
+      Curve: 43230.25,
+      Balancer: 43218.9,
+    },
+  },
+  ARB: {
+    price: 0.8945,
+    change24h: 5.67,
+    volume24h: 125000000,
+    marketCap: 8900000000,
+    exchanges: {
+      "Uniswap V3": 0.8945,
+      SushiSwap: 0.8942,
+      Curve: 0.8948,
+      Balancer: 0.894,
+    },
+  },
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const tokens = searchParams.get("tokens")?.split(",") || []
+    const tokens = searchParams.get("tokens")?.split(",") || ["WETH", "USDC", "WBTC", "ARB"]
 
-    // Mock price data for now
-    // In production, this would use the ALCHEMY_API_KEY or COINGECKO_API_KEY server-side
-    const mockPrices: Record<string, any> = {
-      WETH: {
-        symbol: "WETH",
-        price: 2450.75 + (Math.random() - 0.5) * 100,
-        change24h: (Math.random() - 0.5) * 10,
-        volume24h: 1250000000,
-        marketCap: 295000000000,
-      },
-      USDC: {
-        symbol: "USDC",
-        price: 1.0001 + (Math.random() - 0.5) * 0.01,
-        change24h: (Math.random() - 0.5) * 0.5,
-        volume24h: 2100000000,
-        marketCap: 25000000000,
-      },
-      USDT: {
-        symbol: "USDT",
-        price: 0.9999 + (Math.random() - 0.5) * 0.01,
-        change24h: (Math.random() - 0.5) * 0.3,
-        volume24h: 3200000000,
-        marketCap: 83000000000,
-      },
-      DAI: {
-        symbol: "DAI",
-        price: 1.0002 + (Math.random() - 0.5) * 0.01,
-        change24h: (Math.random() - 0.5) * 0.4,
-        volume24h: 180000000,
-        marketCap: 5300000000,
-      },
-      WBTC: {
-        symbol: "WBTC",
-        price: 43250.5 + (Math.random() - 0.5) * 1000,
-        change24h: (Math.random() - 0.5) * 8,
-        volume24h: 850000000,
-        marketCap: 8200000000,
-      },
-      ARB: {
-        symbol: "ARB",
-        price: 1.25 + (Math.random() - 0.5) * 0.2,
-        change24h: (Math.random() - 0.5) * 15,
-        volume24h: 125000000,
-        marketCap: 1800000000,
-      },
-    }
-
-    const result =
-      tokens.length > 0
-        ? tokens.reduce(
-            (acc, token) => {
-              if (mockPrices[token.toUpperCase()]) {
-                acc[token.toUpperCase()] = mockPrices[token.toUpperCase()]
-              }
-              return acc
-            },
-            {} as Record<string, any>,
-          )
-        : mockPrices
+    // Filter mock data based on requested tokens
+    const filteredData = Object.fromEntries(Object.entries(mockPriceData).filter(([token]) => tokens.includes(token)))
 
     return NextResponse.json({
       success: true,
-      prices: result,
+      data: filteredData,
       timestamp: Date.now(),
     })
   } catch (error) {
-    console.error("Error fetching prices:", error)
-    return NextResponse.json({ success: false, error: "Failed to fetch prices" }, { status: 500 })
+    console.error("Price API error:", error)
+    return NextResponse.json({ success: false, error: "Failed to fetch price data" }, { status: 500 })
   }
 }

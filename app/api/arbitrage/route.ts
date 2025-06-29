@@ -1,77 +1,73 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY
-const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY
+// Mock arbitrage data for development
+const mockArbitrageData = {
+  opportunities: [
+    {
+      id: "1",
+      tokenPair: "WETH/USDC",
+      exchange1: "Uniswap V3",
+      exchange2: "SushiSwap",
+      price1: 2450.5,
+      price2: 2455.75,
+      profitUsd: 125.3,
+      profitPercentage: 0.21,
+      gasEstimate: 0.008,
+      timestamp: Date.now(),
+    },
+    {
+      id: "2",
+      tokenPair: "WBTC/USDT",
+      exchange1: "Curve",
+      exchange2: "Balancer",
+      price1: 43250.0,
+      price2: 43180.5,
+      profitUsd: 89.75,
+      profitPercentage: 0.16,
+      gasEstimate: 0.012,
+      timestamp: Date.now(),
+    },
+  ],
+  totalProfit24h: 2450.75,
+  successfulTrades: 18,
+  failedTrades: 2,
+  averageGasCost: 0.009,
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // Mock arbitrage opportunities for now
-    // In production, this would use the ALCHEMY_API_KEY server-side
-    const mockOpportunities = [
-      {
-        id: "arb-001",
-        baseToken: {
-          address: "0xA0b86a33E6441b8435b662f0E2d0B8A0E8E8E8E8",
-          symbol: "USDC",
-        },
-        quoteToken: {
-          address: "0xB0b86a33E6441b8435b662f0E2d0B8A0E8E8E8E8",
-          symbol: "WETH",
-        },
-        liquidity: {
-          usd: 150000,
-        },
-        priceUsd: "2450.50",
-        estimatedProfit: 125.75,
-        amount: 50000,
-        route: ["uniswap", "sushiswap"],
-      },
-      {
-        id: "arb-002",
-        baseToken: {
-          address: "0xC0b86a33E6441b8435b662f0E2d0B8A0E8E8E8E8",
-          symbol: "USDT",
-        },
-        quoteToken: {
-          address: "0xD0b86a33E6441b8435b662f0E2d0B8A0E8E8E8E8",
-          symbol: "DAI",
-        },
-        liquidity: {
-          usd: 75000,
-        },
-        priceUsd: "1.001",
-        estimatedProfit: 45.25,
-        amount: 25000,
-        route: ["curve", "balancer"],
-      },
-    ]
-
+    // In production, this would connect to real DEX APIs
+    // For now, return mock data
     return NextResponse.json({
       success: true,
-      opportunities: mockOpportunities,
+      data: mockArbitrageData,
     })
   } catch (error) {
-    console.error("Error fetching arbitrage opportunities:", error)
-    return NextResponse.json({ success: false, error: "Failed to fetch opportunities" }, { status: 500 })
+    console.error("Arbitrage API error:", error)
+    return NextResponse.json({ success: false, error: "Failed to fetch arbitrage data" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { token, amount, provider } = body
+    const { tokenPair, amount, maxGasPrice } = body
 
-    // Mock execution result
-    const mockResult = {
-      success: true,
-      txHash: "0x" + Math.random().toString(16).substr(2, 64),
-      profit: Math.random() * 100 + 50,
-      gasUsed: Math.floor(Math.random() * 200000) + 100000,
+    // Mock execution response
+    const executionResult = {
+      transactionHash: "0x" + Math.random().toString(16).substr(2, 64),
+      status: "pending",
+      estimatedProfit: amount * 0.002, // 0.2% profit
+      gasUsed: 0.008,
+      timestamp: Date.now(),
     }
 
-    return NextResponse.json(mockResult)
+    return NextResponse.json({
+      success: true,
+      data: executionResult,
+    })
   } catch (error) {
-    console.error("Error executing arbitrage:", error)
+    console.error("Arbitrage execution error:", error)
     return NextResponse.json({ success: false, error: "Failed to execute arbitrage" }, { status: 500 })
   }
 }
